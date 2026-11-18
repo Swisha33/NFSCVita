@@ -1,0 +1,63 @@
+// Carbon sky, Vita preset: IDI_SKY_FX technique 0 pixel shader (ps_3_0), translated instruction by instruction
+// (work/sm_dis.py work/fx/sky_t0p0_ps.bin): a height gradient, the moon (MISCMAP1, sampler 1) on a billboard
+// around a fixed point with its glow, clouds (DIFFUSEMAP, sampler 0) scrolled by cfTimeTicker, a horizon haze,
+// then fog towards cvFogColour and cvVertexPowerBrightness.y * 0.5. Alpha 1.
+// Reference values from the PC (apitrace, work/pctrace): fog colour (0.216 0.31 0.341), power/brightness
+// (2 0.6 1 0.4), time 0.215.
+
+float4 main(
+    float2 vTex0 : TEXCOORD0,
+    float4 vObject : TEXCOORD1,         // xyz: object position, w: fog factor
+    uniform sampler2D uTex0,            // DIFFUSEMAP: clouds
+    uniform sampler2D uTex1,            // MISCMAP1: moon
+    uniform float4 uAlphaTest,
+    uniform float4 uFogColour,          // cvFogColour
+    uniform float4 uPowerBrightness,    // cvVertexPowerBrightness
+    uniform float4 uEyePos,             // cvLocalEyePos
+    uniform float4 uTime) : COLOR       // x: cfTimeTicker
+{
+    float3 p = vObject.xyz;
+    const float3 moon = float3(-50000.0, 60000.0, 30000.0);
+    const float3 c6 = float3(0.0995037, 0.995037, 0.0);
+
+    float3 toMoon = moon - p;
+    float3 d = normalize(toMoon);
+    float distMoon = dot(toMoon, d);
+    float3 tangent = normalize(d.yzx * c6.yzx - d.zxy * c6.xyz);
+    float3 view = normalize(p - uEyePos.xyz);
+    float3 bitangent = normalize(d.yzx * tangent.zxy - d.zxy * tangent.yzx);
+    float3 q = p + (distMoon - dot(view, d)) * view - moon;
+
+    float2 moonUv = (float2(dot(tangent, q), dot(bitangent, q)) * float2(1.21, 1.0) + 3200.0) * 0.00015625;
+    float4 moonTex = tex2D(uTex1, moonUv);
+    float glowBase = min(1.0 / pow(length(q) * 0.000477, 0.57), 0.915);
+    float glow = moonTex.y * pow(glowBase, 1.7);
+
+    float3 sky = (1.0 - p.z * 0.000142857) * float3(0.02, 0.04, 0.07);
+    sky = glow * float3(0.99, 1.0, 0.92) + sky;
+
+    float halo = saturate(glowBase * 0.357143);
+    float inv = 1.0 - glowBase;
+    float horizon = saturate(length(float3(0.0, 0.0, 7000.0) - p) * 6.80272e-05);
+    horizon = horizon * horizon;
+    float cloudMask = 1.0 - horizon * horizon;
+
+    float4 cloud = tex2D(uTex0, vTex0 * 2.77 + uTime.x * float2(-0.14, -0.28));
+    float cloudAlpha = cloudMask * cloud.w;
+    float clear = 1.0 - cloud.w * cloudMask;
+    float cloudLit = cloudAlpha * clear;
+    float smooth = halo * halo * (3.0 - 2.0 * halo);
+    float rim = smooth * pow(cloudLit, 3.07) * 200.0;
+    float3 colour = sky * clear + rim;
+    float inv4 = inv * inv;
+    inv4 = inv4 * inv4;
+    colour = cloudAlpha * cloud.x * cloud.x * 0.34 * inv4 + colour;
+
+    colour = lerp(uFogColour.rgb, colour, vObject.w);
+    float4 c = float4(colour * (uPowerBrightness.y * 0.5), 1.0);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

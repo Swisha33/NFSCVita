@@ -1,0 +1,22 @@
+// Carbon world effects, Vita preset: the vertex shader of IDI_WORLD_FX's "lowlod" technique (vs_1_1, also
+// worldnormalmap and glassreflect): colour = pow(vertex colour, power) * brightness, clamped as D3D clamps oD0;
+// texture coordinates plus the texture offset. Used for every technique of the world family (d3dx9_fx.cpp).
+
+void main(
+    float3 aPosition,
+    float4 aColor,
+    float2 aTex0,
+    uniform float4 uWvp[4],
+    uniform float4 uTextureOffset,
+    uniform float4 uPowerBrightness,    // x power, y brightness, z 1: alpha = w (IDI_SKY_FX: 0.5)
+    float4 out vPosition : POSITION,
+    float4 out vColor : COLOR0,
+    float2 out vTex0 : TEXCOORD0)
+{
+    vPosition = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    float4 c = aColor.zyxw;
+    // lit(): pow(x, p) for x > 0, else 0.
+    float3 powered = c.rgb > 0.0 ? pow(c.rgb, uPowerBrightness.x) : 0.0;
+    vColor = float4(saturate(powered * uPowerBrightness.y), lerp(c.a, uPowerBrightness.w, uPowerBrightness.z));
+    vTex0 = aTex0 + uTextureOffset.xy;
+}

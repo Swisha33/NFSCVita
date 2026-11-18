@@ -1,0 +1,20 @@
+// Carbon world effects, Vita preset: texture * vertex colour (IDI_WORLD_FX "lowlod", ps_2_0); uScale.x is 2 for
+// IDI_WORLDPRELIT_FX's mul_x2 (ps_1_1), 1 otherwise. ATEST: the alpha test of every fragment program.
+
+float4 main(
+    float4 vColor : COLOR0,
+    float2 vTex0 : TEXCOORD0,
+    uniform sampler2D uTex0,
+    uniform float4 uAlphaTest,
+    uniform float4 uScale) : COLOR
+{
+    float4 c = tex2D(uTex0, vTex0) * vColor;
+    c.rgb = saturate(c.rgb * uScale.x);
+    // uScale.y 1: debug_carbon_colors (solid green: where world geometry lands).
+    c = lerp(c, float4(0.0, 1.0, 0.0, 1.0), uScale.y);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

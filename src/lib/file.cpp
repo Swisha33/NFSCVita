@@ -1,0 +1,630 @@
+#include <lib/file.h>
+#include <platform/filesystem.h>
+#include <platform/config.h>
+#include <strings.h>
+#include <platform/log.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <algorithm>
+#include <atomic>
+#include <cctype>
+#include <cerrno>
+#include <cstring>
+#include <mutex>
+#include <vector>
+
+namespace win32
+{
+
+// Guest current directory: "X:\" plus components, always ending in a backslash.
+static std::string s_currentDirectory = "C:\\";
+static std::string s_dataDirectory = "ux0:data/NFSUG1VITA/";
+static std::string s_cdDirectory = "ux0:data/NFSUG1VITA/";
+
+static bool isSeparator(char c)
+{
+    return c == '\\' || c == '/';
+}
+
+// Resolves "." and ".." in a guest path that starts with "X:"; the result ends with a backslash when the path did.
+static std::string resolveDots(const std::string& path)
+{
+    std::string result = path.substr(0, 2);
+    result[0] = char(toupper(result[0]));
+    std::vector<std::string> parts;
+    std::string::size_type start = 2;
+    while (start <= path.size())
+    {
+        std::string::size_type end = start;
+        while (end < path.size() && !isSeparator(path[end]))
+            end++;
+        std::string part = path.substr(start, end - start);
+        if (part == "..")
+        {
+            if (!parts.empty())
+                parts.pop_back();
+        }
+        else if (!part.empty() && part != ".")
+        {
+            parts.push_back(part);
+        }
+        start = end + 1;
+    }
+    for (std::vector<std::string>::const_iterator it = parts.begin(); it != parts.end(); ++it)
+        result += "\\" + *it;
+    if (parts.empty() || (!path.empty() && isSeparator(path.back())))
+        result += "\\";
+    return result;
+}
+
+// resolveDots with a trailing backslash.
+static std::string normalizeGuestDirectory(const std::string& path)
+{
+    std::string result = resolveDots(path);
+    if (!isSeparator(result.back()))
+        result += "\\";
+    return result;
+}
+
+// Makes a guest path absolute ("X:\...") using the current directory.
+static std::string absoluteGuestPath(const std::string& path)
+{
+    if (path.size() >= 2 && path[1] == ':')
+        return path;
+    if (!path.empty() && isSeparator(path[0]))
+        return s_currentDirectory.substr(0, 2) + path;
+    return s_currentDirectory + path;
+}
+
+static std::string normalizePath(const std::string& input, bool keepCase = false);
+
+// Guest path -> host path. Drive-letter paths land in the data (or CD) directory; only the guest part is normalised,
+// so the data directory keeps its case.
+static std::string moveToRoot(const std::string& path)
+{
+    std::string device = path;
+    for (size_t i = 0; i < device.size(); ++i)
+        device[i] = char(tolower(device[i]));
+    // No null device on the Vita: use a scratch file. Console output goes to the debug tty.
+    if (device == "nul" || device == "conin$")
+        return s_dataDirectory + "nul.tmp";
+    if (device == "conout$")
+        return "tty0:";
+    std::string full = resolveDots(absoluteGuestPath(path));
+    std::string rest = full.substr(2);
+    while (!rest.empty() && isSeparator(rest[0]))
+        rest.erase(0, 1);
+    const std::string& root = (toupper(full[0]) == 'D') ? s_cdDirectory : s_dataDirectory;
+    // The save folder (shfolder.cpp's C:\save) keeps the game's case: NFS Carbon names a profile folder "A" + alias
+    // and lists them with "A*", stripping the "A" only when it is upper case (0x58e480 / 0x580940; "A" is the
+    // English string 0x193548ec, "SHADOW" the backup's). A lower-cased "aname" folder came back as alias "aname" and
+    // the load opened "Aaname/Aaname". The memory card is case-insensitive, so lookups still match any case.
+    const bool keepCase = rest.size() >= 5 && strncasecmp(rest.c_str(), "save", 4) == 0 && isSeparator(rest[4]);
+    return root + pf::resolveCase(root, normalizePath(rest, keepCase));
+}
+
+// Lower-cases, converts separators and collapses repeats; the Vita filesystem is case-insensitive.
+static std::string normalizePath(const std::string& input, bool keepCase)
+{
+    std::string path;
+    path.reserve(input.size());
+    for (std::string::const_iterator it = input.begin(); it != input.end(); ++it)
+    {
+        char c = keepCase ? *it : char(tolower(*it));
+        if (c == '\\')
+            c = '/';
+        if (c == '/' && !path.empty() && path.back() == '/')
+            continue;
+        path += c;
+    }
+    return path;
+}
+
+// Case-insensitive match supporting '*' and '?'.
+static bool wildcardMatch(const char* pattern, const char* name)
+{
+    const char* star = nullptr;
+    const char* starName = nullptr;
+    while (*name)
+    {
+        if (*pattern == '*')
+        {
+            star = pattern++;
+            starName = name;
+        }
+        else if (*pattern == '?' || tolower(*pattern) == tolower(*name))
+        {
+            pattern++;
+            name++;
+        }
+        else if (star)
+        {
+            pattern = star + 1;
+            name = ++starName;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    while (*pattern == '*')
+        pattern++;
+    return *pattern == 0;
+}
+
+FileEnumerator::FileEnumerator(const char* filename)
+    :   m_pattern(moveToRoot(filename))
+    ,   m_index(-1)
+{
+    pf::logDebug("Enumerate %s", m_pattern.c_str());
+    /* Win32 "*.*" means every file */
+    size_t pos = m_pattern.find("*.*");
+    if (pos != std::string::npos)
+        m_pattern.replace(pos, 3, "*");
+    std::string dirPath, filePattern;
+    size_t lastSlash = m_pattern.rfind('/');
+    if (lastSlash != std::string::npos)
+    {
+        dirPath = m_pattern.substr(0, lastSlash);
+        filePattern = m_pattern.substr(lastSlash + 1);
+    }
+    else
+    {
+        dirPath = s_dataDirectory;
+        filePattern = m_pattern;
+    }
+    DIR* d = opendir(dirPath.c_str());
+    if (d)
+    {
+        // Windows lists "." and ".." first in every folder but a drive's root, and code written for it counts on
+        // that (EA's memory-card library at 0x894b7b skips the first entries by name). The Vita lists neither.
+        if (pf::Config::getBool("find_dots", false) && dirPath != s_dataDirectory && dirPath + "/" != s_dataDirectory
+            && dirPath + "/" != s_cdDirectory)
+        {
+            for (const char* dots : { ".", ".." })
+            {
+                if (!wildcardMatch(filePattern.c_str(), dots))
+                    continue;
+                WIN32_FIND_DATAA data;
+                memset(&data, 0, sizeof(data));
+                data.dwFileAttributes = 16;
+                strcpy(data.cFileName, dots);
+                m_files.push_back(data);
+            }
+        }
+        struct dirent* entry;
+        while ((entry = readdir(d)) != nullptr)
+        {
+            if (wildcardMatch(filePattern.c_str(), entry->d_name))
+            {
+                std::string fullPath = dirPath + "/" + entry->d_name;
+                struct stat buffer;
+                memset(&buffer, 0, sizeof(buffer));
+                stat(fullPath.c_str(), &buffer);
+                WIN32_FIND_DATAA data;
+                memset(&data, 0, sizeof(data));
+                data.dwFileAttributes = S_ISDIR(buffer.st_mode) ? 16 : 0;
+                data.nFileSizeHigh = 0;
+                data.nFileSizeLow = x86::reg32(buffer.st_size);
+                strncpy(data.cFileName, entry->d_name, sizeof(data.cFileName)-1);
+                m_files.push_back(data);
+            }
+        }
+        closedir(d);
+    }
+}
+
+FileEnumerator::~FileEnumerator()
+{
+}
+
+bool FileEnumerator::findNext(WIN32_FIND_DATAA *data)
+{
+    m_index++;
+    if (size_t(m_index) >= m_files.size())
+    {
+        return false;
+    }
+    else
+    {
+        memcpy(data, &m_files[m_index], sizeof(*data));
+        return true;
+    }
+}
+
+struct ReadFilterEntry
+{
+    std::string             suffix;
+    File::ReadFilter        filter;
+};
+
+// Written before guest code runs, read-only afterwards.
+static std::vector<ReadFilterEntry> s_readFilters;
+
+void File::setReadFilter(const char* pathSuffix, ReadFilter filter)
+{
+    s_readFilters.push_back(ReadFilterEntry{ pathSuffix, filter });
+}
+
+void File::initReadFilter()
+{
+    m_readFilter = nullptr;
+    for (const ReadFilterEntry& entry : s_readFilters)
+    {
+        if (m_filename.size() >= entry.suffix.size()
+            && m_filename.compare(m_filename.size() - entry.suffix.size(), entry.suffix.size(), entry.suffix) == 0)
+            m_readFilter = entry.filter;
+    }
+}
+
+static std::atomic<int> s_openFiles{0};
+
+int File::openCount()
+{
+    return s_openFiles.load(std::memory_order_relaxed);
+}
+
+// Descriptor cache. A Vita process has far fewer file descriptors than Windows has handles: Carbon keeps ~60 files
+// open while driving (track streams, sound banks, engine .abk/.gin of traffic cars) and open() then failed with
+// EMFILE (errno 24), which crashed the game (runs 158-160). When open() runs out, the least recently used idle
+// read-only file gives up its descriptor (parked) and is opened again at its position on its next use.
+static std::mutex s_cacheLock;
+static std::vector<File*> s_tracked;            // read-only files that may be parked
+static unsigned long long s_useTick = 0;
+static std::atomic<int> s_parked{0};
+static bool s_limitLogged = false;
+
+int File::parkedCount()
+{
+    return s_parked.load(std::memory_order_relaxed);
+}
+
+void File::track()
+{
+    std::lock_guard<std::mutex> guard(s_cacheLock);
+    m_lastUse = ++s_useTick;
+    s_tracked.push_back(this);
+}
+
+void File::untrack()
+{
+    std::lock_guard<std::mutex> guard(s_cacheLock);
+    s_tracked.erase(std::remove(s_tracked.begin(), s_tracked.end(), this), s_tracked.end());
+    if (m_parked)
+        s_parked.fetch_sub(1, std::memory_order_relaxed);
+}
+
+// Under s_cacheLock: closes the descriptor of the least recently used idle file; false if none is idle.
+bool parkOneLocked()
+{
+    File* victim = nullptr;
+    for (File* f : s_tracked)
+        if (f->m_file >= 0 && !f->m_parked && f->m_busy == 0 && (!victim || f->m_lastUse < victim->m_lastUse))
+            victim = f;
+    if (!s_limitLogged)
+    {
+        s_limitLogged = true;
+        pf::logInfo("file: descriptor limit reached with %d guest files open (%u read-only); parking idle files, "
+                    "first %s", File::openCount(), unsigned(s_tracked.size()),
+                    victim ? victim->m_filename.c_str() : "(none idle)");
+        for (File* f : s_tracked)
+            pf::logInfo("file:   open %s%s", f->m_filename.c_str(), f->m_busy ? " (busy)" : "");
+    }
+    if (!victim)
+        return false;
+    close(victim->m_file);
+    victim->m_file = -1;
+    victim->m_parked = true;
+    s_parked.fetch_add(1, std::memory_order_relaxed);
+    return true;
+}
+
+// open() that parks idle files while the descriptor table is full. locked: the caller holds s_cacheLock.
+static int hostOpen(const char* path, int flags, int mode, bool locked)
+{
+    for (int attempt = 0; ; ++attempt)
+    {
+        const int file = open(path, flags, mode);
+        if (file >= 0 || errno != EMFILE || attempt >= 16)
+            return file;
+        std::unique_lock<std::mutex> guard(s_cacheLock, std::defer_lock);
+        if (!locked)
+            guard.lock();
+        if (!parkOneLocked())
+            return file;
+    }
+}
+
+// Marks a read-only file busy for one call and opens it again first if it was parked.
+struct FileUse
+{
+    File& f;
+    explicit FileUse(File& file) : f(file)
+    {
+        if (!f.m_readOnly)
+            return;
+        std::lock_guard<std::mutex> guard(s_cacheLock);
+        ++f.m_busy;
+        f.m_lastUse = ++s_useTick;
+        if (!f.m_parked)
+            return;
+        const int fd = hostOpen(f.m_filename.c_str(), O_RDONLY, 0664, true);
+        if (fd >= 0 && lseek(fd, f.m_position, SEEK_SET) == f.m_position)
+        {
+            f.m_file = fd;
+            f.m_parked = false;
+            s_parked.fetch_sub(1, std::memory_order_relaxed);
+            return;
+        }
+        if (fd >= 0)
+            close(fd);
+        pf::logError("file %s: not opened again after parking (errno %d)", f.m_filename.c_str(), errno);
+    }
+    ~FileUse()
+    {
+        if (!f.m_readOnly)
+            return;
+        std::lock_guard<std::mutex> guard(s_cacheLock);
+        --f.m_busy;
+    }
+};
+
+File::File(int file, const char* name)
+    :   m_file(dup(file))
+    ,   m_filename(name)
+{
+    initReadFilter();
+    if (m_file != -1)
+        s_openFiles.fetch_add(1, std::memory_order_relaxed);
+}
+
+File::File(const File& other)
+    :   m_file(hostOpen(other.m_filename.c_str(), O_RDONLY, 0664, false))
+    ,   m_filename(other.m_filename)
+    ,   m_readFilter(other.m_readFilter)
+    ,   m_readOnly(true)
+{
+    if (m_file != -1)
+    {
+        s_openFiles.fetch_add(1, std::memory_order_relaxed);
+        track();
+    }
+    pf::logDebug("opening file %s for Map", m_filename.c_str());
+}
+
+File::File(const char* path, x86::reg32 mode, x86::reg32 flags, x86::reg32 creationFlags)
+    :   m_file(-1)
+    ,   m_filename(moveToRoot(path))
+{
+    RC_USE(flags);
+    initReadFilter();
+    // Access 0 only queries the file: opened for reading.
+    const bool reads = (mode & (GENERIC_READ | GENERIC_ALL | FILE_READ_DATA)) != 0;
+    const bool writes = (mode & (GENERIC_WRITE | GENERIC_ALL | FILE_WRITE_DATA | FILE_APPEND_DATA)) != 0;
+    int openFlags = writes ? (reads ? O_RDWR : O_WRONLY) : O_RDONLY;
+    switch(creationFlags)
+    {
+    case CREATE_NEW:
+        openFlags |= O_CREAT | O_EXCL;
+        break;
+    case CREATE_ALWAYS:
+        openFlags |= O_CREAT | O_TRUNC;
+        break;
+    case OPEN_ALWAYS:
+        openFlags |= O_CREAT;
+        break;
+    case OPEN_EXISTING:
+        break;
+    case TRUNCATE_EXISTING:
+        openFlags |= O_TRUNC;
+        break;
+    default:
+        pf::logError("CreateFile %s: unknown creation disposition %u", m_filename.c_str(), unsigned(creationFlags));
+        return;
+    }
+    // The scratch file standing in for the null device may not exist yet.
+    if (m_filename == s_dataDirectory + "nul.tmp")
+        openFlags |= O_CREAT;
+
+    m_file = hostOpen(m_filename.c_str(), openFlags, 0664, false);
+    m_readOnly = !writes;
+    // The game probes files that do not exist (NFSUNDER\ZDIR.BIN, Config.bin): not an error.
+    if (m_file == -1)
+    {
+        pf::logInfo("file %s not opened (errno %d)", m_filename.c_str(), errno);
+    }
+    else
+    {
+        s_openFiles.fetch_add(1, std::memory_order_relaxed);
+        if (m_readOnly)
+            track();
+        pf::logDebug("opening file %s", m_filename.c_str());
+    }
+}
+
+File::~File()
+{
+    // Only read-only files opened by path or copied are tracked (track()); untrack ignores the others.
+    if (m_readOnly)
+        untrack();
+    if (m_file != -1 || m_parked)
+        s_openFiles.fetch_sub(1, std::memory_order_relaxed);
+    if (m_file != -1)
+    {
+        close(m_file);
+        pf::logDebug("closing file %s", m_filename.c_str());
+    }
+}
+
+x86::reg32 File::seek(x86::reg32 mode, x86::sreg32 offset)
+{
+    // Vita newlib's lseek dereferences a null descriptor for an invalid fd (unlike read/write/fstat),
+    // e.g. the stdin handle: fd 0 cannot be dup'ed. Fail like Windows does for a console handle.
+    FileUse use(*this);
+    if (m_file < 0)
+        return x86::reg32(-1);
+    int seekMode = 0;
+    switch(mode)
+    {
+    case 0:
+        seekMode = SEEK_SET;
+        break;
+    case 1:
+        seekMode = SEEK_CUR;
+        break;
+    case 2:
+        seekMode = SEEK_END;
+        break;
+    default:
+        RC_ASSERT(false);
+        break;
+    }
+    const off_t position = lseek(m_file, offset, seekMode);
+    if (position >= 0)
+        m_position = position;
+    return x86::reg32(position);
+}
+
+x86::reg32 File::read(void* buffer, x86::reg32 max, x86::reg32* totalRead)
+{
+    FileUse use(*this);
+    if (m_file < 0)
+    {
+        *totalRead = 0;
+        return 0;
+    }
+    const off_t offset = m_readFilter ? lseek(m_file, 0, SEEK_CUR) : 0;
+    // Big reads are named in the log before they start (runs 106-123 froze in file I/O: the Vita went idle,
+    // fixed by sceKernelPowerTick in the watchdog).
+    if (max >= 4 * 1024 * 1024)
+        pf::logInfo("file %s: reading %u bytes at %ld", m_filename.c_str(), unsigned(max), long(m_position));
+    *totalRead = x86::reg32(::read(m_file, buffer, max));
+    // A read cut short by the system (the game suspended with the PS button while the read waited, the memory card
+    // busy) fails at once; the game then drops what it was loading or streaming (the menu music stopped). The file is
+    // opened again at the same position and the read done once more.
+    if (*totalRead == x86::reg32(-1) && m_readOnly)
+    {
+        const int error = errno;
+        const bool reopened = reopenAt(m_position);
+        pf::logError("file %s: read of %u bytes at %ld failed (errno %d)%s", m_filename.c_str(), unsigned(max),
+                     long(m_position), error, reopened ? ", opened again" : ", not opened again");
+        if (reopened)
+            *totalRead = x86::reg32(::read(m_file, buffer, max));
+    }
+    if (*totalRead != x86::reg32(-1))
+        m_position += off_t(*totalRead);
+    if (m_readFilter && offset >= 0 && *totalRead != x86::reg32(-1))
+        m_readFilter(x86::reg32(offset), static_cast<x86::reg8*>(buffer), *totalRead);
+    return *totalRead != x86::reg32(-1);
+}
+
+bool File::reopenAt(off_t position)
+{
+    const int file = hostOpen(m_filename.c_str(), O_RDONLY, 0664, false);
+    if (file < 0)
+        return false;
+    if (lseek(file, position, SEEK_SET) != position)
+    {
+        close(file);
+        return false;
+    }
+    if (m_file >= 0)
+        close(m_file);
+    m_file = file;
+    return true;
+}
+
+x86::reg32 File::write(const void* buffer, x86::reg32 max, x86::reg32* totalWritten)
+{
+    *totalWritten = x86::reg32(::write(m_file, buffer, max));
+    return *totalWritten == max;
+}
+
+x86::reg32 File::truncate()
+{
+    pf::logDebug("Truncating file %s", m_filename.c_str());
+    if (m_file < 0)
+        return 0;
+    return ftruncate(m_file, lseek(m_file, 0, SEEK_CUR)) == 0;
+}
+
+x86::reg32 File::size() const
+{
+    FileUse use(const_cast<File&>(*this));
+    struct stat buffer;
+    memset(&buffer, 0, sizeof(buffer));
+    fstat(m_file, &buffer);
+    return x86::reg32(buffer.st_size);
+}
+
+// Win32 form: no trailing backslash except for a drive root.
+std::string File::getCurrentDirectory()
+{
+    std::string result = s_currentDirectory;
+    if (result.size() > 3)
+        result.pop_back();
+    return result;
+}
+
+bool File::setCurrentDirectory(const char* path)
+{
+    std::string directory = normalizeGuestDirectory(absoluteGuestPath(path));
+    std::string host = moveToRoot(directory);
+    struct stat buffer;
+    memset(&buffer, 0, sizeof(buffer));
+    if (stat(host.c_str(), &buffer) != 0 || !S_ISDIR(buffer.st_mode))
+    {
+        pf::logError("SetCurrentDirectory %s: not found (%s)", path, host.c_str());
+        return false;
+    }
+    s_currentDirectory = directory;
+    pf::logDebug("current directory %s", s_currentDirectory.c_str());
+    return true;
+}
+
+void File::setDataDirectory(const char* path)
+{
+    s_dataDirectory = path;
+    if (s_dataDirectory.empty() || s_dataDirectory.back() != '/')
+        s_dataDirectory.append("/");
+}
+
+void File::setCdDirectory(const char* path)
+{
+    s_cdDirectory = path;
+    if (s_cdDirectory.empty() || s_cdDirectory.back() != '/')
+        s_cdDirectory.append("/");
+}
+
+bool File::diskSpace(x86::reg64* total, x86::reg64* free)
+{
+    return pf::diskSpace(s_dataDirectory, total, free);
+}
+
+std::string File::hostPath(const char* path)
+{
+    std::string host = moveToRoot(path);
+    while (host.size() > 1 && host.back() == '/')
+        host.pop_back();
+    return host;
+}
+
+x86::reg32 File::remove(const char *filename)
+{
+    std::string f = moveToRoot(filename);
+    if (unlink(f.c_str()) != 0)
+    {
+        pf::logError("unable to delete file %s", filename);
+        return 0;
+    }
+    else
+    {
+        pf::logDebug("Deleting file %s", filename);
+        return 1;
+    }
+}
+
+}

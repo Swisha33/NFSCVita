@@ -1,0 +1,40 @@
+// Carbon particles, Vita preset: IDI_PARTICLES_FX techniques fuzzz / no_fuzzz (vs_1_1, t2p0) and flares (t5p0).
+// Each vertex is the particle centre (aPosition) plus a corner offset along the camera's right and up vectors
+// (aTex1.x, aTex1.y), rotated about the view axis by aTex1.z when it is positive. Particles (uMode.x 0.65) keep the
+// projected corner within 0.65 of the centre in NDC; flares (uMode.x huge) do not. Colour = saturate(vertex colour
+// * uMode.y) (particles: 2, flares: 1). Per-light shading of fuzzz / no_fuzzz (cavLight*) is left out.
+
+void main(
+    float3 aPosition,
+    float4 aColor,
+    float2 aTex0,
+    float3 aTex1,
+    uniform float4 uWvp[4],
+    uniform float4 uWorldView[4],      // cmWorldView rows: columns 0, 1, 2 are right, up, forward (object space)
+    uniform float4 uTextureOffset,     // cvTextureOffset (particles), 0 (flares)
+    uniform float4 uMode,              // x: NDC size limit, y: colour factor
+    float4 out vPosition : POSITION,
+    float4 out vColor : COLOR0,
+    float2 out vTex0 : TEXCOORD0)
+{
+    float3 right = float3(uWorldView[0].x, uWorldView[1].x, uWorldView[2].x);
+    float3 up = float3(uWorldView[0].y, uWorldView[1].y, uWorldView[2].y);
+    float3 forward = float3(uWorldView[0].z, uWorldView[1].z, uWorldView[2].z);
+    if (aTex1.z > 0.0)
+    {
+        float s, c;
+        sincos(aTex1.z, s, c);
+        float3 a = normalize(forward);
+        right = right * c + cross(a, right) * s + a * dot(a, right) * (1.0 - c);
+        up = up * c + cross(a, up) * s + a * dot(a, up) * (1.0 - c);
+    }
+    float3 p = aPosition + right * aTex1.x + up * aTex1.y;
+    float4 corner = p.x * uWvp[0] + p.y * uWvp[1] + p.z * uWvp[2] + uWvp[3];
+    float4 centre = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    float2 d = corner.xy / corner.w - centre.xy / centre.w;
+    float len = length(d);
+    float k = len > uMode.x ? uMode.x / len : 1.0;
+    vPosition = centre + k * (corner - centre);
+    vColor = saturate(aColor.zyxw * uMode.y);
+    vTex0 = aTex0 + uTextureOffset.xy;
+}

@@ -1,0 +1,12 @@
+// Carbon screen effects, Vita preset: IDI_VISUALTREATMENT_FX's vertex shader (vs_1_1: oPos = v0, oT0 = v1), positions
+// already in clip space.
+
+void main(
+    float3 aPosition,
+    float2 aTex0,
+    float4 out vPosition : POSITION,
+    float2 out vTex0 : TEXCOORD0)
+{
+    vPosition = float4(aPosition, 1.0);
+    vTex0 = aTex0;
+}

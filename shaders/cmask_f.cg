@@ -1,0 +1,19 @@
+// Carbon IDI_FE_MASK_FX (ps_1_1): rgb = texture * colour, alpha = texture alpha * mask alpha * colour alpha.
+
+float4 main(
+    float4 vColor : COLOR0,
+    float2 vTex0 : TEXCOORD0,
+    float2 vTex1 : TEXCOORD1,
+    uniform sampler2D uTex0,          // DIFFUSEMAP
+    uniform sampler2D uTex1,          // FEMaskMap
+    uniform float4 uAlphaTest) : COLOR
+{
+    float4 t = tex2D(uTex0, vTex0);
+    float m = tex2D(uTex1, vTex1).a;
+    float4 c = float4(t.rgb * vColor.rgb, t.a * m * vColor.a);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

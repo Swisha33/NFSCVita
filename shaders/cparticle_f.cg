@@ -1,0 +1,18 @@
+// Carbon particles, Vita preset: texture * vertex colour, rgb times uAmbient (ambient_colour of IDI_PARTICLES_FX's
+// no_fuzzz ps_1_1; 1 for flares, whose soft depth fade is left out). ATEST: the alpha test of every fragment program.
+
+float4 main(
+    float4 vColor : COLOR0,
+    float2 vTex0 : TEXCOORD0,
+    uniform sampler2D uTex0,
+    uniform float4 uAlphaTest,
+    uniform float4 uAmbient) : COLOR
+{
+    float4 c = tex2D(uTex0, vTex0) * vColor;
+    c.rgb = c.rgb * uAmbient.rgb;
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

@@ -1,0 +1,36 @@
+// Carbon car effect, Vita preset: IDI_CAR_FX technique 3 (vs_1_1) without specular, fog and environment map.
+// Diffuse = clamp(harmonic(normal)) * (cvDiffuseMin + s * cvDiffuseRange), s = min(pow(n.v, cvPowers.x),
+// cvClampAndScales.x) * cvClampAndScales.z with v the direction to the eye (cvLocalEyePos, object space).
+
+void main(
+    float3 aPosition,
+    float3 aNormal,
+    float2 aTex0,
+    uniform float4 uWvp[4],
+    uniform float4 uHarmonic[10],     // cavHarmonicCoeff
+    uniform float4 uLocalEyePos,
+    uniform float4 uDiffuseMin,
+    uniform float4 uDiffuseRange,
+    uniform float4 uPowers,           // cvPowers
+    uniform float4 uClampAndScales,   // cvClampAndScales
+    uniform float4 uFlakes,           // cvFlakes
+    float4 out vPosition : POSITION,
+    float4 out vDiffuse : COLOR0,
+    float3 out vTex0 : TEXCOORD0)     // xy: texture coordinates, z: oD1.w of technique 2 (decal light)
+{
+    vPosition = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    float3 n = aNormal;
+    float3 h = uHarmonic[0].xyz + uHarmonic[1].xyz * (n.x * n.x) + uHarmonic[2].xyz * (n.y * n.y)
+             + uHarmonic[3].xyz * (n.z * n.z) + uHarmonic[4].xyz * (n.x * n.y) + uHarmonic[5].xyz * (n.x * n.z)
+             + uHarmonic[6].xyz * (n.z * n.y) + uHarmonic[7].xyz * n.x + uHarmonic[8].xyz * n.y
+             + uHarmonic[9].xyz * n.z;
+    float3 v = normalize(uLocalEyePos.xyz - aPosition);
+    float ndv = saturate(dot(v, n));
+    float p = ndv > 0.0 ? pow(ndv, uPowers.x) : 0.0;
+    float s = min(p, uClampAndScales.x) * uClampAndScales.z;
+    float4 scale = uDiffuseMin + s * uDiffuseRange;
+    vDiffuse = float4(saturate(h) * scale.xyz, scale.w);
+    // car_t2p0_vs oD1.w: luminance of the clamped harmonic light * (s * cvFlakes.w + cvFlakes.z).
+    float luminance = dot(saturate(h), float3(0.2125, 0.7154, 0.0721));
+    vTex0 = float3(aTex0, luminance * (s * uFlakes.w + uFlakes.z));
+}

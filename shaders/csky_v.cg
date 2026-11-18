@@ -1,0 +1,17 @@
+// Carbon sky, Vita preset: IDI_SKY_FX technique 0 vertex shader (vs_3_0), translated. The pixel program gets the
+// object-space position for the procedural moon, cloud and height terms, and the fog factor
+// saturate((z - cfSkyFogFalloff.y) * cfSkyFogFalloff.x).
+
+void main(
+    float3 aPosition,
+    float2 aTex0,
+    uniform float4 uWvp[4],
+    uniform float4 uFogFalloff,         // cfSkyFogFalloff
+    float4 out vPosition : POSITION,
+    float2 out vTex0 : TEXCOORD0,
+    float4 out vObject : TEXCOORD1)     // xyz: object position, w: fog factor
+{
+    vPosition = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    vTex0 = aTex0;
+    vObject = float4(aPosition, saturate((aPosition.z - uFogFalloff.y) * uFogFalloff.x));
+}

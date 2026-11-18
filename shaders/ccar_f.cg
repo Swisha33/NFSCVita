@@ -1,0 +1,22 @@
+// Carbon car effect, Vita preset (IDI_CAR_FX technique 2, ps_2_0, without the environment map and specular): the
+// paint is the lit vertex colour; where the diffuse map (vinyls, decals, lights) has alpha it shows texture *
+// lerp(decal light, lit colour, cvVinylScales.x) (decal light: oD1.w of car_t2p0_vs; without it decals of
+// vinyl scale 0 were black: the car's black stripes, run 93).
+
+float4 main(
+    float4 vDiffuse : COLOR0,
+    float3 vTex0 : TEXCOORD0,
+    uniform sampler2D uTex0,          // DIFFUSEMAP (its stage in the game's pass: FxEffect::m_diffuseStage)
+    uniform float4 uAlphaTest,
+    uniform float4 uVinylScales) : COLOR    // cvVinylScales
+{
+    float4 t = tex2D(uTex0, vTex0.xy);
+    float3 decal = t.rgb * lerp(vTex0.zzz, vDiffuse.rgb, uVinylScales.x);
+    float4 c = float4(lerp(vDiffuse.rgb, decal, t.a), t.a * vDiffuse.a);
+    c.rgb = saturate(c.rgb);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

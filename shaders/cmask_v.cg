@@ -1,0 +1,20 @@
+// Carbon IDI_FE_MASK_FX (vs_1_1): front-end quads with a mask (the minimap): colour * 2 (alpha * 1), clamped as D3D
+// clamps oD0; two texture coordinate sets.
+
+void main(
+    float3 aPosition,
+    float4 aColor,
+    float2 aTex0,
+    float2 aTex1,
+    uniform float4 uWvp[4],
+    float4 out vPosition : POSITION,
+    float4 out vColor : COLOR0,
+    float2 out vTex0 : TEXCOORD0,
+    float2 out vTex1 : TEXCOORD1)
+{
+    vPosition = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    float4 c = aColor.zyxw;
+    vColor = saturate(float4(c.rgb * 2.0, c.a));
+    vTex0 = aTex0;
+    vTex1 = aTex1;
+}

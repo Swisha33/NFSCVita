@@ -1,0 +1,18 @@
+// Carbon screen effects, Vita preset: the scene texture as it is (visual treatment without bloom, colour-grading LUT
+// or depth of field). uDebug.x 1 (debug_carbon_colors): a dark red floor shows where the quad lands. ATEST: the
+// alpha test of every fragment program.
+
+float4 main(
+    float2 vTex0 : TEXCOORD0,
+    uniform sampler2D uTex0,
+    uniform float4 uAlphaTest,
+    uniform float4 uDebug) : COLOR
+{
+    float4 c = tex2D(uTex0, vTex0);
+    c.rgb = max(c.rgb, float3(0.3, 0.0, 0.0) * uDebug.x);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}
