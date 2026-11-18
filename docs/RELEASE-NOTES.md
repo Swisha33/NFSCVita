@@ -36,7 +36,7 @@ to `ux0:data/NFSCVITA/`. See the [README](../README.md#install).
    out).
 3. Start the game.
 
-The VPK carries plain icon and LiveArea images; `tools/vita/livearea_art.py "<game folder>" --vpk NFSCVita.vpk` puts
-the game's own logo on it from your copy.
+The VPK's icon and LiveArea show the game's own logo and art. A VPK you build yourself gets them from your copy
+(`tools/vita/livearea_art.py`); without that step it has plain images with the game's name as text.
 
 Unofficial, non-commercial fan port, not affiliated with or endorsed by Electronic Arts.

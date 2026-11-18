@@ -149,9 +149,10 @@ The result is `build-release-clang/NFSCVita.vpk`. The first build translates `NF
 changed. The build options are described at the top of `tools/build.ps1`.
 
 - The recompiled code is generated from your own `NFSC.exe`; no game code or data is in this repository.
-- The icon and LiveArea images in the repository are plain ones (the game's name as text). To use the game's own
-  logo, run `python -I tools/vita/livearea_art.py "<game folder>"` before building, or with `--vpk NFSCVita.vpk` to
-  put them into a built VPK. Those images are made from EA's art on your PC; please don't share them.
+- The VPK on the Releases page has the game's logo and art on its icon and LiveArea. The images in this repository
+  are plain ones (the game's name as text); to make the logo ones from your game files, run
+  `python -I tools/vita/livearea_art.py "<game folder>"` before building (into `sce_sys/game/`, which the build
+  prefers and git ignores), or add `--vpk NFSCVita.vpk` to put them into a built VPK.
 - Shaders ship prebuilt in `shaders/gxp/` (compiled on a Vita with `tools/shadercomp.ps1`).
 - Testing over Wi-Fi: `tools/vita.ps1` uploads a build to a Vita running
   [vitacompanion](https://github.com/devnoname120/vitacompanion) and fetches the log (set `$env:VITA_IP`, for example

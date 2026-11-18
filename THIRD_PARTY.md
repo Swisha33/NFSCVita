@@ -40,7 +40,7 @@ Game code, binaries and assets are the property of Electronic Arts Inc. and its 
 repository. Users supply their own copy of the game; the code generated from its executable and audio banks
 (`src/nfsc/generated/`) is not tracked. The icon and LiveArea images in `sce_sys/` and `assets/logo.png` are plain
 text drawn by `tools/vita/plain_art.py`; images made from the game's own art (`tools/vita/livearea_art.py`, into
-`sce_sys/game/`) are not tracked.
+`sce_sys/game/`) are not tracked; the release VPK carries them, as NFSUG2_VITA's does.
 
 ## Need for Speed Underground
 
