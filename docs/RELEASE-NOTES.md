@@ -17,8 +17,9 @@ to `ux0:data/NFSCVITA/`. See the [README](../README.md#install).
 - Vita control layout (NFSUG2_VITA's), changeable on the Controls screen; rear touch for look back / camera
 
 ### Performance
-- About 20 fps in the city (CPU-bound). Recommended: [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker)
-  (fourth core) and [PSVshell](https://github.com/Electry/PSVshell) at 444 or 500 MHz. The port no longer sets the
+- About 20 fps in the city (CPU-bound; measured at 500 MHz with CapUnlocker). Recommended:
+  [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) (fourth core) and [PSVshell](https://github.com/Electry/PSVshell)
+  at 500 MHz. The port no longer sets the
   CPU clock itself (setting `cpu_clock`, default `0`).
 - Recent gains: the EA audio thread runs on its own core next to the Vita's audio mixer (+8 %), small scenery is
   culled earlier (`scenery_scale`, +7 %), five helper threads the game raises to high priority (network, file and EA thread library) stay at normal

@@ -50,7 +50,8 @@ card.
 - About 5.5 GB free on the memory card (about 4.5 GB without the `MOVIES` folder, which the port skips)
 - [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) is strongly recommended: it lets the port use the
   Vita's fourth CPU core.
-- [PSVshell](https://github.com/Electry/PSVshell) is strongly recommended: set the CPU to 444 MHz (or 500). The
+- [PSVshell](https://github.com/Electry/PSVshell) is strongly recommended: set the CPU to 500 MHz (the speeds below
+  were measured at 500). The
   port sets the bus and GPU clocks itself but leaves the CPU clock to you (see `cpu_clock` under
   [Settings](#settings)).
 
@@ -123,7 +124,7 @@ Lines starting with `#` are comments.
 
 ## Known issues
 
-- About 20 fps in races and free roam (the CPU is the limit; see [docs/STATUS.md](docs/STATUS.md) for the work on
+- About 20 fps in races and free roam at 500 MHz with CapUnlocker (the CPU is the limit; see [docs/STATUS.md](docs/STATUS.md) for the work on
   it).
 - Movies are skipped: the game's VP6 decoder is too slow on the Vita in this version.
 - Memory is tight: Carbon's PC streaming pools are larger than the Vita's memory. The pools are shrunk, which can
