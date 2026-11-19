@@ -820,7 +820,9 @@ enum : uint8_t
     EffectKindCarbonCar = 0x42,     // car (ccar_v / ccar_f): diffuse map on stage 1
     EffectKindCarbonMask = 0x43,    // FE mask (cmask_v / cmask_f): diffuse map stage 0, mask stage 1
     EffectKindCarbonParticle = 0x44,// particles and flares (cparticle_v / cparticle_f): diffuse map stage 0
-    EffectKindCarbonSky = 0x45      // sky technique 0 (csky_v / csky_f): clouds stage 0, moon stage 1
+    EffectKindCarbonSky = 0x45,     // sky technique 0 (csky_v / csky_f): clouds stage 0, moon stage 1
+    EffectKindCarbonBone = 0x46,    // skinned meshes, IDI_WORLDBONE_FX (UG1VITA's worldbone_v / world_f): stage 0
+    EffectKindCarbonUcap = 0x47     // UCAP faces, IDI_UCAP_FX (cucap_v / world_f): stage 0
 };
 enum CarbonSlot : uint8_t
 {
@@ -836,6 +838,10 @@ enum CarbonSlot : uint8_t
     CarbonClampAndScales,           // 4
     CarbonVinylScales,              // 4
     CarbonWorldView,                // 16: particles
+    CarbonBones,                    // 256: skinned meshes (16 bone matrices)
+    CarbonPcaX,                     // 32: UCAP faces, cavPcaWeightsX (after the bones)
+    CarbonPcaY,                     // 32
+    CarbonPcaZ,                     // 32
     CarbonSlotCount
 };
 // debug_frame_dump: the Carbon effect and technique whose pass is open (d3dx9_fx.cpp), or null.

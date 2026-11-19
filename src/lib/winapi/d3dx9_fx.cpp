@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -303,7 +304,9 @@ enum FxFamily : uint8_t
     FamilyScreen,       // cscreen: clip-space quads, the texture of sampler 0 shown as it is
     FamilyCar,          // ccar: harmonic diffuse light, paint and decals, no specular or environment map
     FamilyMask,         // cmask: front-end quads cut out by a mask texture (the minimap)
-    FamilyParticle      // cparticle: camera-facing particle and flare quads (not streak_flares)
+    FamilyParticle,     // cparticle: camera-facing particle and flare quads (not streak_flares)
+    FamilyBone,         // UG1VITA's worldbone_v / world_f: skinned meshes (cutscene characters)
+    FamilyUcap          // cucap_v / world_f: the cutscene characters' faces (PCA facial animation, skinned)
 };
 
 FxFamily familyOf(const std::string& name)
@@ -327,6 +330,13 @@ FxFamily familyOf(const std::string& name)
         return FamilyMask;
     if (name == "IDI_PARTICLES_FX" && pf::Config::getBool("carbon_particles", true))
         return FamilyParticle;
+    // Skinned meshes: the characters of the cutscenes. Through the stand-in their bone-space positions were drawn
+    // without the bones (characters missing).
+    if (name == "IDI_WORLDBONE_FX" && pf::Config::getBool("carbon_bones", true))
+        return FamilyBone;
+    // Their faces: positions rebuilt from PCA weights (through the stand-in: no faces, run 245).
+    if (name == "IDI_UCAP_FX" && pf::Config::getBool("carbon_bones", true))
+        return FamilyUcap;
     return FamilyNone;
 }
 
@@ -468,6 +478,8 @@ public:
                     : m_family == FamilyCar ? EffectKindCarbonCar
                     : m_family == FamilyMask ? EffectKindCarbonMask
                     : m_family == FamilyParticle ? EffectKindCarbonParticle
+                    : m_family == FamilyBone ? EffectKindCarbonBone
+                    : m_family == FamilyUcap ? EffectKindCarbonUcap
                     : m_skyProcedural ? EffectKindCarbonSky : EffectKindCarbonWorld;
         // Car family: the stage the diffuse map is on (s0 in IDI_CAR_FX technique 2, s1 in technique 3).
         effect.pass = m_family == FamilyCar ? m_diffuseStage : 0;
@@ -1302,6 +1314,13 @@ reg32 SetTechnique(FxEffect& fx, const x86::CPU& cpu)
     if (t < 0)
         return D3DERR_INVALIDCALL;
     fx.m_technique = uint32_t(t);
+    // UCAP faces: technique 0 builds the colour from a PCA texture atlas (five tiles of DIFFUSEMAP and per-frame
+    // colour weights), which cucap_v / world_f would show as a rainbow atlas (run 247); technique 2 ("main_1_1", the
+    // PC's lowest) binds the plain face texture (HEIGHTMAP) to stage 0 and draws it: the pass states of that
+    // technique are applied instead. Setting ucap_technique (default 2; -1 keeps the game's choice).
+    static const int ucap = pf::Config::getInt("ucap_technique", 2);
+    if (fx.family() == FamilyUcap && ucap >= 0 && uint32_t(ucap) < fx.m_techniques.size())
+        fx.m_technique = uint32_t(ucap);
     return D3D_OK;
 }
 
@@ -1443,13 +1462,29 @@ const char* g_fxPassTechnique = nullptr;
 namespace
 {
 
+// Effects without a family draw through the fixed-function stand-in (their shaders are not translated), which can
+// leave models or textures missing: each effect and technique is logged once when it first draws that way.
+void logStandIn(const FxEffect& fx)
+{
+    static std::set<std::string> s_logged;
+    const std::string technique = fx.m_technique < fx.m_techniques.size() ? fx.m_techniques[fx.m_technique].name
+                                                                          : std::string("?");
+    const std::string key = fx.name() + "/" + std::to_string(fx.m_technique);
+    if (s_logged.size() < 256 && s_logged.insert(key).second)
+        pf::logInfo("d3dx9: effect %s technique %u (%s) draws through the fixed-function stand-in", fx.name().c_str(),
+                    unsigned(fx.m_technique), technique.c_str());
+}
+
 // A family pass: its values into the effect's block, and the effect becomes the device's pass for the draws.
 void applyFamily(FxEffect& fx, Device& device)
 {
     g_fxPassName = fx.name().c_str();
     g_fxPassTechnique = fx.m_technique < fx.m_techniques.size() ? fx.m_techniques[fx.m_technique].name.c_str() : "?";
     if (fx.family() == FamilyNone || fx.block() == NoBlock)
+    {
+        logStandIn(fx);
         return;
+    }
     if (fx.family() == FamilyScreen)
     {
         device.setEffectPass(&fx);
@@ -1524,6 +1559,46 @@ void applyFamily(FxEffect& fx, Device& device)
         carbonBlockStore(d, id, CarbonFragmentScale, ambient, 4);
         device.setEffectPass(&fx);
         D3D_LOG_ONCE("d3dx9: Carbon particles and flares draw with cparticle_v / cparticle_f (setting carbon_particles)");
+        return;
+    }
+    if (fx.family() == FamilyUcap)
+    {
+        float wvp[16], bones[256], pca[32];
+        fx.floatsOf("WorldViewProj", wvp, 16);
+        fx.floatsOf("camBlendMatrices", bones, 256);
+        carbonBlockStore(d, id, CarbonWvp, wvp, 16);
+        carbonBlockStore(d, id, CarbonBones, bones, 256);
+        struct { const char* name; CarbonSlot slot; } const sets[] = {
+            { "cavPcaWeightsX", CarbonPcaX }, { "cavPcaWeightsY", CarbonPcaY }, { "cavPcaWeightsZ", CarbonPcaZ } };
+        for (const auto& s : sets)
+        {
+            memset(pca, 0, sizeof(pca));
+            fx.floatsOf(s.name, pca, 32);
+            carbonBlockStore(d, id, s.slot, pca, 32);
+        }
+        device.setEffectPass(&fx);
+        D3D_LOG_ONCE("d3dx9: Carbon UCAP faces (IDI_UCAP_FX) draw with cucap_v / world_f (setting carbon_bones)");
+        return;
+    }
+    if (fx.family() == FamilyBone)
+    {
+        // IDI_WORLDBONE_FX: WorldViewProj and camBlendMatrices (16 matrices, rows as stored: worldbone_v's bone() is
+        // the vs's dp4 against the blended matrix). Colour 0.5 (harmonic[0] = 0.5, diffuse min 1 with alpha 0.5,
+        // range 0) so world_f's texture * colour * 2 gives the texture: what technique 1 (ps_1_1: mov r0, t0) draws.
+        float wvp[16], bones[256], eye[4] = { 0, 0, 0, 1 }, harmonic[40] = {};
+        const float min[4] = { 1.0f, 1.0f, 1.0f, 0.5f }, range[4] = { 0, 0, 0, 0 };
+        harmonic[0] = harmonic[1] = harmonic[2] = harmonic[3] = 0.5f;
+        fx.floatsOf("WorldViewProj", wvp, 16);
+        fx.floatsOf("camBlendMatrices", bones, 256);
+        fx.floatsOf("cvLocalEyePos", eye, 3);
+        carbonBlockStore(d, id, CarbonWvp, wvp, 16);
+        carbonBlockStore(d, id, CarbonBones, bones, 256);
+        carbonBlockStore(d, id, CarbonLocalEyePos, eye, 4);
+        carbonBlockStore(d, id, CarbonHarmonic, harmonic, 40);
+        carbonBlockStore(d, id, CarbonPowerBrightness, min, 4);     // PDiffuseMin
+        carbonBlockStore(d, id, CarbonFragmentScale, range, 4);     // PDiffuseRange
+        device.setEffectPass(&fx);
+        D3D_LOG_ONCE("d3dx9: Carbon skinned meshes (IDI_WORLDBONE_FX) draw with worldbone_v / world_f (setting carbon_bones)");
         return;
     }
     if (fx.family() == FamilyCar)

@@ -1,0 +1,48 @@
+// Carbon UCAP effect (IDI_UCAP_FX, technique 0 "main", vs_3_0): the faces of the cutscene characters. The position is
+// not read from the mesh: each axis is the sum of dot(cavPcaWeights{X,Y,Z}[k], texcoord k+1) over the eight PCA
+// coefficient sets of the vertex (the facial animation), then skinned with three of the 16 bone matrices as in
+// worldbone_v. The colour is a constant 0.5 so world_f (texture * colour * 2) shows the texture, as technique 2
+// (ps_1_1: texture rgb, alpha 1) does.
+
+float4 bone(float4 p, int i, uniform float4 m[64])
+{
+    return p.x * m[i] + p.y * m[i + 1] + p.z * m[i + 2] + p.w * m[i + 3];
+}
+
+void main(
+    float2 aTex0,
+    float3 aWeight,
+    float3 aIndex,
+    float4 aTex1,
+    float4 aTex2,
+    float4 aTex3,
+    float4 aTex4,
+    float4 aTex5,
+    float4 aTex6,
+    float4 aTex7,
+    float4 aTex8,
+    uniform float4 uWvp[4],
+    uniform float4 uBones[64],
+    uniform float4 uPcaX[8],
+    uniform float4 uPcaY[8],
+    uniform float4 uPcaZ[8],
+    float4 out vPosition : POSITION,
+    float4 out vColor : COLOR0,
+    float2 out vTex0 : TEXCOORD0)
+{
+    float4 c[8] = { aTex1, aTex2, aTex3, aTex4, aTex5, aTex6, aTex7, aTex8 };
+    float3 local = float3(0.0, 0.0, 0.0);
+    for (int k = 0; k < 8; ++k)
+        local += float3(dot(uPcaX[k], c[k]), dot(uPcaY[k], c[k]), dot(uPcaZ[k], c[k]));
+    float4 position = float4(local, 1.0);
+    float3 index = clamp(floor(aIndex + 0.5), 0.0, 15.0);
+    int i0 = int(index.x) * 4;
+    int i1 = int(index.y) * 4;
+    int i2 = int(index.z) * 4;
+    float4 p = aWeight.x != 0.0 ? bone(position, i0, uBones) * aWeight.x : float4(0.0);
+    p += aWeight.y != 0.0 ? bone(position, i1, uBones) * aWeight.y : float4(0.0);
+    p += aWeight.z != 0.0 ? bone(position, i2, uBones) * aWeight.z : float4(0.0);
+    vPosition = p.x * uWvp[0] + p.y * uWvp[1] + p.z * uWvp[2] + p.w * uWvp[3];
+    vColor = float4(0.5, 0.5, 0.5, 0.5);
+    vTex0 = aTex0;
+}

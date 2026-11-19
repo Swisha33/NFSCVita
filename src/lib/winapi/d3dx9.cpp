@@ -47,7 +47,7 @@ struct ParamInfo
 const ParamInfo s_params[ParamCount] = {
     { "WorldViewProj", TypeFloat, 16, false }, { "ViewProj", TypeFloat, 16, false },
     { "WorldView", TypeFloat, 16, false }, { "World", TypeFloat, 16, false }, { "View", TypeFloat, 16, false },
-    { "Proj", TypeFloat, 16, false }, { "BlendMatrices", TypeFloat, 256, false },
+    { "Proj", TypeFloat, 16, false }, { "BlendMatrices", TypeFloat, 352, false },
     { "HeadlightWVP", TypeFloat, 16, false }, { "LocalEyePos", TypeFloat, 4, false },
     { "diffusemap", TypeTexture, 0, true }, { "HeadlightTex", TypeTexture, 0, false },
     { "HarmonicCoeff", TypeFloat, 40, false }, { "AmbientCoeff", TypeInt, 1, false },
@@ -551,7 +551,8 @@ void markEffectValuesDirty()
 int effectSamplerStage(const EffectDraw& effect, uint32_t slot)
 {
     if (effect.kind == EffectKindCarbonWorld || effect.kind == EffectKindCarbonScreen
-        || effect.kind == EffectKindCarbonParticle)
+        || effect.kind == EffectKindCarbonParticle || effect.kind == EffectKindCarbonBone
+        || effect.kind == EffectKindCarbonUcap)
         return slot == 0 ? 0 : -1;
     if (effect.kind == EffectKindCarbonCar)
         return slot == 0 ? int(effect.pass) : -1;   // the stage of DIFFUSEMAP_SAMPLER (FxEffect::record)
@@ -575,7 +576,11 @@ namespace
 // World uses PDiffuseMin/PDiffuseRange for its power/brightness and fragment scale; the car slots have their own.
 const int s_carbonSlots[CarbonSlotCount] = { PWorldViewProj, PTextureOffset, PDiffuseMin, PDiffuseRange,
                                              PHarmonicCoeff, PLocalEyePos, PSpecularMin, PSpecularRange,
-                                             PEnvmapMin, PEnvmapRange, PHeadlightColor, PWorldView };
+                                             PEnvmapMin, PEnvmapRange, PHeadlightColor, PWorldView, PBlendMatrices,
+                                             PBlendMatrices, PBlendMatrices, PBlendMatrices };
+// Offset of a slot inside its parameter: Carbon's UCAP PCA weights follow the 16 bone matrices (BlendMatrices holds
+// 256 + 3 * 32 floats).
+const uint32_t s_carbonSlotOffsets[CarbonSlotCount] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 256, 288, 320 };
 }
 
 uint16_t carbonBlockCreate()
@@ -595,8 +600,9 @@ void carbonBlockStore(Device* device, uint16_t id, CarbonSlot slot, const float*
         return;
     Values& v = *s_blocks[id];
     const int p = s_carbonSlots[slot];
-    n = n < s_params[p].floats ? n : s_params[p].floats;
-    float* to = v.floats.data() + s_offsets[p];
+    const uint32_t sub = s_carbonSlotOffsets[slot];
+    n = n < s_params[p].floats - sub ? n : s_params[p].floats - sub;
+    float* to = v.floats.data() + s_offsets[p] + sub;
     if (sameWords(to, data, n))
         return;
     memcpy(to, data, n * 4);
@@ -608,7 +614,7 @@ void carbonBlockStore(Device* device, uint16_t id, CarbonSlot slot, const float*
     }
     uint32_t* w = stream->append(2 + n);
     w[0] = CmdValues | uint32_t(id) << 8;
-    w[1] = s_offsets[p] | n << 16;
+    w[1] = (s_offsets[p] + sub) | n << 16;
     memcpy(w + 2, to, n * 4);
 }
 
@@ -640,6 +646,26 @@ void effectBinding(const EffectDraw& effect, const float* own, const float* shar
         b.fragmentProgram = render::FpCParticle;
         b.samplerCount = 1;
         b.samplers[0] = samplerOf(render::AddressClamp, true);
+        b.deviceStates = true;
+        return;
+    }
+    if (effect.kind == EffectKindCarbonUcap)
+    {
+        b.vertexProgram = render::VpCUcap;
+        b.fragmentProgram = render::FpWorldBone;
+        b.samplerCount = 1;
+        b.samplers[0] = samplerOf(render::AddressWrap, true);
+        b.deviceStates = true;
+        return;
+    }
+    if (effect.kind == EffectKindCarbonBone)
+    {
+        // Skinned meshes (cutscene characters): UG1VITA's three-bone skinning program and world_f (texture * colour
+        // * 2); applyFamily sets the colour to 0.5, so the result is the texture, as Carbon's technique 1 draws it.
+        b.vertexProgram = render::VpWorldBone;
+        b.fragmentProgram = render::FpWorldBone;
+        b.samplerCount = 1;
+        b.samplers[0] = samplerOf(render::AddressWrap, true);
         b.deviceStates = true;
         return;
     }
@@ -756,6 +782,24 @@ void effectVertexConstants(const EffectDraw& effect, const float* own, const flo
         memcpy(c.mode, own + s_offsets[PDiffuseMin], sizeof(c.mode));
         return;
     }
+    if (effect.kind == EffectKindCarbonUcap)
+    {
+        render::CUcapVertexConstants& c = *reinterpret_cast<render::CUcapVertexConstants*>(out);
+        memcpy(c.wvp, own + s_offsets[PWorldViewProj], sizeof(c.wvp));
+        memcpy(c.bones, own + s_offsets[PBlendMatrices], sizeof(c.bones) + sizeof(c.pcaX) * 3);
+        return;
+    }
+    if (effect.kind == EffectKindCarbonBone)
+    {
+        render::WorldBoneVertexConstants& c = *reinterpret_cast<render::WorldBoneVertexConstants*>(out);
+        memcpy(c.wvp, own + s_offsets[PWorldViewProj], sizeof(c.wvp));
+        memcpy(c.localEyePos, own + s_offsets[PLocalEyePos], sizeof(c.localEyePos));
+        memcpy(c.harmonic, own + s_offsets[PHarmonicCoeff], sizeof(c.harmonic));
+        memcpy(c.diffuseMin, own + s_offsets[PDiffuseMin], sizeof(c.diffuseMin));
+        memcpy(c.diffuseRange, own + s_offsets[PDiffuseRange], sizeof(c.diffuseRange));
+        memcpy(c.bones, own + s_offsets[PBlendMatrices], sizeof(c.bones));
+        return;
+    }
     if (effect.kind == EffectKindCarbonCar)
     {
         render::CCarVertexConstants& c = *reinterpret_cast<render::CCarVertexConstants*>(out);
@@ -815,7 +859,7 @@ void effectVertexConstants(const EffectDraw& effect, const float* own, const flo
         copy(c.harmonic, PHarmonicCoeff);
         copy(c.diffuseMin, PDiffuseMin);
         copy(c.diffuseRange, PDiffuseRange);
-        copy(c.bones, PBlendMatrices);
+        memcpy(c.bones, v.floats(PBlendMatrices), sizeof(c.bones));
         break;
     }
     case EffectCar:
@@ -863,7 +907,7 @@ void effectFragmentConstants(const EffectDraw& effect, const float* own, const f
         c.debug[1] = c.debug[2] = c.debug[3] = 0.0f;
         return;
     }
-    if (effect.kind == EffectKindCarbonMask)
+    if (effect.kind == EffectKindCarbonMask || effect.kind == EffectKindCarbonBone || effect.kind == EffectKindCarbonUcap)
         return;
     if (effect.kind == EffectKindCarbonSky)
     {

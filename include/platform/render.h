@@ -87,6 +87,7 @@ enum VertexProgram : uint8_t
     VpCMask,                    // Carbon FE mask (cmask_v.cg)
     VpCParticle,                // Carbon particles and flares (cparticle_v.cg)
     VpCSky,                     // Carbon sky, technique 0 (csky_v.cg)
+    VpCUcap,                    // Carbon UCAP faces (cucap_v.cg), with world_f
     VpCount
 };
 
@@ -248,6 +249,14 @@ struct CCarVertexConstants
     float flakes[4];            // cvFlakes
 };
 
+struct CUcapVertexConstants
+{
+    float wvp[16];
+    float bones[256];           // camBlendMatrices: 16 matrices
+    float pcaX[32];             // cavPcaWeightsX: 8 float4
+    float pcaY[32];
+    float pcaZ[32];
+};
 struct CCarFragmentConstants
 {
     float alphaTest[4];
@@ -302,6 +311,11 @@ enum Usage : uint8_t
     UsageTex3,
     UsageWeight,
     UsageIndices,
+    UsageTex4,                  // texcoord 4-8: the UCAP faces' PCA coefficient sets (texcoord 1-8)
+    UsageTex5,
+    UsageTex6,
+    UsageTex7,
+    UsageTex8,
     UsageCount
 };
 

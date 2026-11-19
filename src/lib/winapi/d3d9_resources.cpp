@@ -951,9 +951,10 @@ VertexDeclaration::VertexDeclaration(Device* device, const D3DVERTEXELEMENT9* el
             usage = render::UsageColor;
             break;
         case D3DDECLUSAGE_TEXCOORD:
-            if (e.UsageIndex > 3)
+            if (e.UsageIndex > 8)
                 continue;
-            usage = uint8_t(render::UsageTex0 + e.UsageIndex);
+            usage = e.UsageIndex <= 3 ? uint8_t(render::UsageTex0 + e.UsageIndex)
+                                      : uint8_t(render::UsageTex4 + (e.UsageIndex - 4));
             if (e.UsageIndex == 0)
                 m_texComponents = e.Type <= render::TypeFloat4 ? e.Type + 1u : 4u;
             break;

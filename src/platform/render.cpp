@@ -86,6 +86,14 @@ const UniformField s_cworldVertex[] = {
     FIELD(CWorldVertexConstants, textureOffset, "uTextureOffset"),
     FIELD(CWorldVertexConstants, powerBrightness, "uPowerBrightness"),
 };
+const UniformField s_cucapVertex[] = {
+    FIELD(CUcapVertexConstants, wvp, "uWvp"),
+    FIELD(CUcapVertexConstants, bones, "uBones"),
+    FIELD(CUcapVertexConstants, pcaX, "uPcaX"),
+    FIELD(CUcapVertexConstants, pcaY, "uPcaY"),
+    FIELD(CUcapVertexConstants, pcaZ, "uPcaZ"),
+};
+
 const UniformField s_ccarVertex[] = {
     FIELD(CCarVertexConstants, wvp, "uWvp"),
     FIELD(CCarVertexConstants, harmonic, "uHarmonic"),
@@ -153,6 +161,7 @@ const VertexProgramInfo s_vertexPrograms[VpCount] = {
     { "cmask_v", FLOATS(WorldReflectVertexConstants), COUNT(s_worldReflectVertex), s_worldReflectVertex },
     { "cparticle_v", FLOATS(CParticleVertexConstants), COUNT(s_cparticleVertex), s_cparticleVertex },
     { "csky_v", FLOATS(CSkyVertexConstants), COUNT(s_cskyVertex), s_cskyVertex },
+    { "cucap_v", FLOATS(CUcapVertexConstants), COUNT(s_cucapVertex), s_cucapVertex },
 };
 
 const FragmentProgramInfo s_fragmentPrograms[FpCount] = {
@@ -186,7 +195,8 @@ const FragmentProgramInfo s_fragmentPrograms[FpCount] = {
 };
 
 const char* const s_inputNames[UsageCount] = {
-    "aPosition", "aNormal", "aColor", "aTex0", "aTex1", "aTex2", "aTex3", "aWeight", "aIndex"
+    "aPosition", "aNormal", "aColor", "aTex0", "aTex1", "aTex2", "aTex3", "aWeight", "aIndex", "aTex4", "aTex5",
+    "aTex6", "aTex7", "aTex8"
 };
 
 enum

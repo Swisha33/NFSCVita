@@ -891,6 +891,34 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       library targets (fixed 0x89xxxx helpers) directly instead of returning to runNative (~10 % of the lock hold);
       (2) native hot guest functions (71e660, 727230, 79fa60, 7e83e0, 5fcdc0, 699420); (3) PGO; (4) check the
       other helper threads for the same inversion (relock is ~0.3 ms now, so little left there).
+   237-248 (2026-11-19). **v0.1.0 published; cutscene characters (bodies and faces).**
+      - Release v0.1.0 on GitHub (Swisha33/NFSCVita); cpu_clock default 0, stream_track_kb default 46000,
+        CI fixes (-Werror warnings in winapp.cpp / msvcr71.cpp). The user's PSVshell holds 500 MHz: every benchmark
+        so far ran at 500.
+      - New log line: each Carbon effect / technique that draws through the fixed-function stand-in, once
+        ("d3dx9: effect X technique N (name) draws through the fixed-function stand-in"). Races: IDI_SCREENEFFECT_FX
+        techniques 1/2/5 (blur, downscale), IDI_FE_FX, IDI_WATERSHADER_FX technique 1. Cutscenes added
+        IDI_WORLDBONE_FX and IDI_UCAP_FX.
+      - The career start (title -> profile -> Career -> START CAREER) is reachable with auto_input
+        "40-66:cross:tap": prologue NIS (scene_introcareer07ng), the pursuit, BUSTED, the arrest NIS
+        (scene_arrestf06ng). work/menurun.sh 247 "40-66:cross:tap" 4000 90 36 390 captures both.
+      - **Bodies** (user: "in cutscenes player models are missing"): IDI_WORLDBONE_FX (vs_1_1/vs_3_0: three blend
+        weights, index * 4 into camBlendMatrices c0-c63, dp4 against the blended rows) had no family, so the stand-in
+        drew bone-space positions. New family (EffectKindCarbonBone) reuses UG1VITA's worldbone_v / world_f: same
+        skinning maths (bone() = the vs's dp4 rows), colour 0.5 so world_f gives the texture (technique 1's ps_1_1 is
+        "mov r0, t0"). Run 245: driver's body, jacket, hands and hair right; face missing.
+      - **Faces**: IDI_UCAP_FX positions are not in the mesh: x/y/z = sum over 8 float4 sets (texcoord 1-8) of
+        dot(cavPcaWeights{X,Y,Z}[k], set k), then skinned like the body (vertex declaration: pos, tex0, weight float3,
+        index float3, 8 x float4: exactly MaxVertexElements = 12). New vertex inputs aTex4..aTex8 (UsageTex4..8),
+        program cucap_v.cg (compiled on the Vita, tools/shadercomp.ps1 -Only cucap_v), PCA weights stored after the
+        bones in the block (BlendMatrices now 352 floats; carbonBlockStore slot sub-offsets). Run 247: shapes and
+        animation right, but technique 0's colour is a PCA atlas (five tiles of DIFFUSEMAP, colour weights
+        cavPcaWeightsR/G/B in ps_3_0): rainbow faces. Setting ucap_technique (default 2): SetTechnique on the UCAP
+        effect selects technique 2 ("main_1_1", ps_1_1: HEIGHTMAP texture rgb), whose pass binds the plain face
+        texture. Run 248: faces right (eyes, mouth animation). The protagonist's face stays blurred on purpose (the
+        game hides it).
+      - Settings: carbon_bones (default on: bodies and faces), ucap_technique.
+      **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank

@@ -26,7 +26,7 @@ const char* const Known[] =
     // Direct boot into a SkipFE race (src/nfsc/main.cpp).
     "boot_race", "boot_track", "boot_opponents", "boot_traffic", "ai_drive",
     // Carbon effects through the port's programs (src/lib/winapi/d3dx9_fx.cpp).
-    "carbon_shaders", "carbon_particles", "carbon_sky", "gfx_detail", "auto_input", "debug_carbon_colors", "screenshot_every", "screenshot_from", "screenshot_count",
+    "carbon_shaders", "carbon_particles", "carbon_bones", "ucap_technique", "carbon_sky", "gfx_detail", "auto_input", "debug_carbon_colors", "screenshot_every", "screenshot_from", "screenshot_count",
     // Sampling profiler (src/platform/sampler.cpp, from NFSUG2_VITA).
     "sampler", "sampler_interval_us", "sampler_thread", "sampler_copies",
     // Cores, logs and the benchmark.
