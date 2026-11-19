@@ -11,6 +11,7 @@
 #include <platform/gxm.h>
 #include <platform/log.h>
 #include <platform/perf.h>
+#include <platform/pgo.h>
 #include <platform/sha256.h>
 #include <platform/sampler.h>
 #include <platform/shadercomp.h>
@@ -296,6 +297,10 @@ int main(int, char**)
     // Setting sampler=on: the game thread's pc about every sampler_interval_us into samples.bin (NFSUG2_VITA's
     // profiler; needs CapUnlocker), read with tools/samples.py.
     pf::sampler::start(dataPath("samples.bin").c_str());
+#ifdef NFSU_PGO_GENERATE
+    // Instrumented build (tools/build.ps1 -PgoGenerate): the profile counters go to nfsu.profraw every 30 s.
+    pf::pgo::start(dataPath(pf::pgo::FileName).c_str());
+#endif
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
 
     std::vector<uint8_t> image;
