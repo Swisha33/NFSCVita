@@ -1009,13 +1009,19 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       Run 271 (boot race, ai_drive): views 1/3/4 hooked, "widescreen HUD on"; screenshots: car in proportion,
       round minimap and tacho at the screen corners. Run 272 (front end): title, career menu and garage centred
       4:3 with the right shape. Not ported: rain droplets (00722cb0), loading-screen pillarboxes, water reflection
-      size, movie placement. Headlights: no beam on the road in run 271's night shots.
-      Run 273 (gfx_detail=medium): still no beam. Cause: the world family draws IDI_WORLD_FX with the Vita preset
-      cworld programs (texture * vertex colour = PC technique 1, "lowlod"); the PC's headlights are per pixel in
-      techniques 0 (ps_3_0) and 2 (vs_2_0/ps_2_0, work/fx/world_t2p0_*.bin): vs passes the normal (oT1) and the
-      world position (oT2, c4..c7); ps: distance falloff (1 - d * 0.00425532)^2 * 3.5, cone pow(dot(dir, -c4), 3.7)
-      capped at 2.7, a facing term, then colour = texture * (vertex colour + c3.x * light). Next: a cworld variant
-      with that term (Cg, compiled on the Vita), costs per-pixel work on all world geometry.
+      size, movie placement.
+   273-278 (2026-11-19). **Headlights (issue #2): done.** The world family drew every technique with cworld
+      (texture * vertex colour). The techniques the game picks at the Vita preset (log: IDI_WORLD_FX and
+      IDI_WORLDNORMALMAP_FX t3, the road's IDI_WORLDREFLECT_FX t5; all ps_1_1) add a projected headlight:
+      HEADLIGHT_SAMPLER_OLD (stage 1) at the position projected by cmHeadlight1WVP (divided by w) times
+      HEADLIGHT_CLIP_SAMPLER (stage 2) at (w * 0.005 + 0.5, 0) times headlight_colour_scale.x (0.5 / 0.4 in run 277).
+      New programs cworldhl_v / cworldhl_f (shaders/, compiled on the Vita) for passes with HEADLIGHT_SAMPLER_OLD on
+      stage 1; slots CarbonHeadlightWvp (PWorld storage) and CarbonHeadlight (PHeadlightWVP, x = colour scale);
+      effectSamplerStage now passes stages 1 and 2 of world draws (run 277 drew the beam black: only stage 0 was
+      forwarded). Setting headlights=off draws cworld again; debug_headlight=N logs the values every N commits.
+      Tried first (runs 274-276): technique 2's per-pixel light (cavWorldHeadlightPosition/Direction, falloff and
+      cone): lit walls, but the road only faintly (grazing N.L) -- not what the preset draws on PC; replaced.
+      Run 278: beam on the road ahead of the car, 19-20 fps as before (timing_log on).
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).

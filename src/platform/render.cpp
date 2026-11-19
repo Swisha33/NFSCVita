@@ -86,6 +86,17 @@ const UniformField s_cworldVertex[] = {
     FIELD(CWorldVertexConstants, textureOffset, "uTextureOffset"),
     FIELD(CWorldVertexConstants, powerBrightness, "uPowerBrightness"),
 };
+const UniformField s_cworldHeadlightVertex[] = {
+    FIELD(CWorldHeadlightVertexConstants, wvp, "uWvp"),
+    FIELD(CWorldHeadlightVertexConstants, textureOffset, "uTextureOffset"),
+    FIELD(CWorldHeadlightVertexConstants, powerBrightness, "uPowerBrightness"),
+    FIELD(CWorldHeadlightVertexConstants, headlightWvp, "uHeadlightWvp"),
+};
+const UniformField s_cworldHeadlightFragment[] = {
+    FIELD(CWorldHeadlightFragmentConstants, alphaTest, "uAlphaTest"),
+    FIELD(CWorldHeadlightFragmentConstants, scale, "uScale"),
+    FIELD(CWorldHeadlightFragmentConstants, headlight, "uHeadlight"),
+};
 const UniformField s_cucapVertex[] = {
     FIELD(CUcapVertexConstants, wvp, "uWvp"),
     FIELD(CUcapVertexConstants, bones, "uBones"),
@@ -162,6 +173,7 @@ const VertexProgramInfo s_vertexPrograms[VpCount] = {
     { "cparticle_v", FLOATS(CParticleVertexConstants), COUNT(s_cparticleVertex), s_cparticleVertex },
     { "csky_v", FLOATS(CSkyVertexConstants), COUNT(s_cskyVertex), s_cskyVertex },
     { "cucap_v", FLOATS(CUcapVertexConstants), COUNT(s_cucapVertex), s_cucapVertex },
+    { "cworldhl_v", FLOATS(CWorldHeadlightVertexConstants), COUNT(s_cworldHeadlightVertex), s_cworldHeadlightVertex },
 };
 
 const FragmentProgramInfo s_fragmentPrograms[FpCount] = {
@@ -192,6 +204,8 @@ const FragmentProgramInfo s_fragmentPrograms[FpCount] = {
     { "cmask_f", FLOATS(WorldFragmentConstants), COUNT(s_worldFragment), s_worldFragment, 2, 0 },
     { "cparticle_f", FLOATS(CParticleFragmentConstants), COUNT(s_cparticleFragment), s_cparticleFragment, 1, 0 },
     { "csky_f", FLOATS(CSkyFragmentConstants), COUNT(s_cskyFragment), s_cskyFragment, 2, 0 },
+    { "cworldhl_f", FLOATS(CWorldHeadlightFragmentConstants), COUNT(s_cworldHeadlightFragment),
+      s_cworldHeadlightFragment, 3, 0 },
 };
 
 const char* const s_inputNames[UsageCount] = {

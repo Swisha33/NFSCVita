@@ -88,6 +88,7 @@ enum VertexProgram : uint8_t
     VpCParticle,                // Carbon particles and flares (cparticle_v.cg)
     VpCSky,                     // Carbon sky, technique 0 (csky_v.cg)
     VpCUcap,                    // Carbon UCAP faces (cucap_v.cg), with world_f
+    VpCWorldHeadlight,          // Carbon world family with the player's headlight (cworldhl_v.cg)
     VpCount
 };
 
@@ -114,6 +115,7 @@ enum FragmentProgram : uint8_t
     FpCMask,                    // Carbon FE mask (cmask_f.cg)
     FpCParticle,                // Carbon particles and flares (cparticle_f.cg)
     FpCSky,                     // Carbon sky, technique 0 (csky_f.cg)
+    FpCWorldHeadlight,          // Carbon world family with the player's headlight (cworldhl_f.cg)
     FpCount
 };
 
@@ -229,6 +231,22 @@ struct CWorldFragmentConstants
 {
     float alphaTest[4];
     float scale[4];             // x: factor of texture * colour (2: mul_x2)
+};
+
+// The world family with the projected headlight (cworldhl_v / cworldhl_f).
+struct CWorldHeadlightVertexConstants
+{
+    float wvp[16];
+    float textureOffset[4];
+    float powerBrightness[4];
+    float headlightWvp[16];     // cmHeadlight1WVP
+};
+
+struct CWorldHeadlightFragmentConstants
+{
+    float alphaTest[4];
+    float scale[4];
+    float headlight[4];         // x: headlight_colour_scale.x
 };
 
 struct CScreenFragmentConstants

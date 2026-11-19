@@ -1676,6 +1676,28 @@ void applyFamily(FxEffect& fx, Device& device)
     carbonBlockStore(d, id, CarbonTextureOffset, offset, 4);
     carbonBlockStore(d, id, CarbonPowerBrightness, pb, 4);
     carbonBlockStore(d, id, CarbonFragmentScale, scale, 4);
+    // The projected headlight: the techniques the Vita preset selects (IDI_WORLD_FX / IDI_WORLDNORMALMAP_FX 3,
+    // IDI_WORLDREFLECT_FX 5) add HEADLIGHT_SAMPLER_OLD (stage 1, projected by cmHeadlight1WVP) times
+    // HEADLIGHT_CLIP_SAMPLER (stage 2) times headlight_colour_scale.x; cworldhl programs while the pass has them.
+    float headlightWvp[16], headlight[4] = {};
+    bool projects = false;
+    if (fx.m_technique < fx.m_techniques.size() && fx.m_pass < fx.m_techniques[fx.m_technique].passes.size())
+        for (const std::pair<uint32_t, std::string>& s : fx.m_techniques[fx.m_technique].passes[fx.m_pass].samplers)
+            projects |= s.first == 1 && s.second == "HEADLIGHT_SAMPLER_OLD";
+    if (projects && fx.floatsOf("cmHeadlight1WVP", headlightWvp, 16))
+    {
+        fx.floatsOf("headlight_colour_scale", headlight, 4);
+        carbonBlockStore(d, id, CarbonHeadlightWvp, headlightWvp, 16);
+        static uint32_t s_commits = 0;
+        static const uint32_t s_every = uint32_t(pf::Config::getInt("debug_headlight", 0));
+        if (s_commits++ == 0 || (s_every && s_commits % s_every == 0))
+            pf::logInfo("d3dx9: headlight (%s t%u): colour scale %g, projection row 0 (%.3f %.3f %.3f %.3f)",
+                        fx.name().c_str(), unsigned(fx.m_technique), double(headlight[0]), double(headlightWvp[0]),
+                        double(headlightWvp[1]), double(headlightWvp[2]), double(headlightWvp[3]));
+    }
+    else
+        headlight[0] = 0.0f;
+    carbonBlockStore(d, id, CarbonHeadlight, headlight, 4);
     device.setEffectPass(&fx);
     D3D_LOG_ONCE("d3dx9: Carbon world effects draw with cworld_v / cworld_f (setting carbon_shaders)");
 }

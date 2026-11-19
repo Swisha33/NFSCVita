@@ -550,7 +550,10 @@ void markEffectValuesDirty()
 
 int effectSamplerStage(const EffectDraw& effect, uint32_t slot)
 {
-    if (effect.kind == EffectKindCarbonWorld || effect.kind == EffectKindCarbonScreen
+    // World: stages 1 and 2 hold the projected headlight's textures (cworldhl; unused by cworld).
+    if (effect.kind == EffectKindCarbonWorld)
+        return slot < 3 ? int(slot) : -1;
+    if (effect.kind == EffectKindCarbonScreen
         || effect.kind == EffectKindCarbonParticle || effect.kind == EffectKindCarbonBone
         || effect.kind == EffectKindCarbonUcap)
         return slot == 0 ? 0 : -1;
@@ -577,10 +580,10 @@ namespace
 const int s_carbonSlots[CarbonSlotCount] = { PWorldViewProj, PTextureOffset, PDiffuseMin, PDiffuseRange,
                                              PHarmonicCoeff, PLocalEyePos, PSpecularMin, PSpecularRange,
                                              PEnvmapMin, PEnvmapRange, PHeadlightColor, PWorldView, PBlendMatrices,
-                                             PBlendMatrices, PBlendMatrices, PBlendMatrices };
+                                             PBlendMatrices, PBlendMatrices, PBlendMatrices, PWorld, PHeadlightWVP };
 // Offset of a slot inside its parameter: Carbon's UCAP PCA weights follow the 16 bone matrices (BlendMatrices holds
 // 256 + 3 * 32 floats).
-const uint32_t s_carbonSlotOffsets[CarbonSlotCount] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 256, 288, 320 };
+const uint32_t s_carbonSlotOffsets[CarbonSlotCount] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 256, 288, 320, 0, 0 };
 }
 
 uint16_t carbonBlockCreate()
@@ -618,15 +621,26 @@ void carbonBlockStore(Device* device, uint16_t id, CarbonSlot slot, const float*
     memcpy(w + 2, to, n * 4);
 }
 
+// Carbon world draw with the projected headlight (cworldhl programs): the pass projects it (its colour scale, stored
+// by d3dx9_fx.cpp, is above 0) and the setting headlights is on.
+static bool carbonHeadlight(const float* own)
+{
+    static const bool enabled = pf::Config::getBool("headlights", true);
+    return enabled && own[s_offsets[PHeadlightWVP]] > 0.0f;
+}
+
 void effectBinding(const EffectDraw& effect, const float* own, const float* shared, bool projected,
                    EffectBinding& b)
 {
     if (effect.kind == EffectKindCarbonWorld)
     {
-        b.vertexProgram = render::VpCWorld;
-        b.fragmentProgram = render::FpCWorld;
-        b.samplerCount = 1;
+        const bool headlight = carbonHeadlight(own);
+        b.vertexProgram = headlight ? render::VpCWorldHeadlight : render::VpCWorld;
+        b.fragmentProgram = headlight ? render::FpCWorldHeadlight : render::FpCWorld;
+        b.samplerCount = headlight ? 3 : 1;
         b.samplers[0] = samplerOf(render::AddressWrap, true);
+        b.samplers[1] = samplerOf(render::AddressClamp, true);
+        b.samplers[2] = samplerOf(render::AddressClamp, true);
         b.deviceStates = true;
         return;
     }
@@ -813,6 +827,15 @@ void effectVertexConstants(const EffectDraw& effect, const float* own, const flo
         memcpy(c.flakes, own + s_offsets[PTextureOffset], sizeof(c.flakes));
         return;
     }
+    if (effect.kind == EffectKindCarbonWorld && carbonHeadlight(own))
+    {
+        render::CWorldHeadlightVertexConstants& c = *reinterpret_cast<render::CWorldHeadlightVertexConstants*>(out);
+        memcpy(c.wvp, own + s_offsets[PWorldViewProj], sizeof(c.wvp));
+        memcpy(c.textureOffset, own + s_offsets[PTextureOffset], sizeof(c.textureOffset));
+        memcpy(c.powerBrightness, own + s_offsets[PDiffuseMin], sizeof(c.powerBrightness));
+        memcpy(c.headlightWvp, own + s_offsets[PWorld], sizeof(c.headlightWvp));
+        return;
+    }
     if (effect.kind == EffectKindCarbonWorld)
     {
         render::CWorldVertexConstants& c = *reinterpret_cast<render::CWorldVertexConstants*>(out);
@@ -928,6 +951,14 @@ void effectFragmentConstants(const EffectDraw& effect, const float* own, const f
     {
         memcpy(reinterpret_cast<render::CCarFragmentConstants*>(out)->vinylScales, own + s_offsets[PHeadlightColor],
                4 * sizeof(float));
+        return;
+    }
+    if (effect.kind == EffectKindCarbonWorld && carbonHeadlight(own))
+    {
+        render::CWorldHeadlightFragmentConstants& c = *reinterpret_cast<render::CWorldHeadlightFragmentConstants*>(out);
+        memcpy(c.scale, own + s_offsets[PDiffuseRange], 4 * sizeof(float));
+        c.scale[1] = debug;
+        memcpy(c.headlight, own + s_offsets[PHeadlightWVP], sizeof(c.headlight));
         return;
     }
     if (effect.kind == EffectKindCarbonWorld)

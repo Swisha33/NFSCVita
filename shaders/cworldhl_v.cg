@@ -1,0 +1,28 @@
+// Carbon world effects with the projected headlight: cworld_v plus what the techniques the Vita preset selects
+// (IDI_WORLD_FX / IDI_WORLDNORMALMAP_FX technique 3, IDI_WORLDREFLECT_FX technique 5, vs_1_1) pass on for the
+// headlight: the position projected by cmHeadlight1WVP (texture coordinates of HEADLIGHT_SAMPLER_OLD, divided by w)
+// and w * 0.005 + 0.5, the coordinate of HEADLIGHT_CLIP_SAMPLER (fades the beam with distance, cuts it behind).
+
+void main(
+    float3 aPosition,
+    float4 aColor,
+    float2 aTex0,
+    uniform float4 uWvp[4],
+    uniform float4 uTextureOffset,
+    uniform float4 uPowerBrightness,    // x power, y brightness, z 1: alpha = w
+    uniform float4 uHeadlightWvp[4],
+    float4 out vPosition : POSITION,
+    float4 out vColor : COLOR0,
+    float2 out vTex0 : TEXCOORD0,
+    float4 out vHeadlight : TEXCOORD1,
+    float out vClip : TEXCOORD2)
+{
+    vPosition = aPosition.x * uWvp[0] + aPosition.y * uWvp[1] + aPosition.z * uWvp[2] + uWvp[3];
+    float4 c = aColor.zyxw;
+    float3 powered = c.rgb > 0.0 ? pow(c.rgb, uPowerBrightness.x) : 0.0;
+    vColor = float4(saturate(powered * uPowerBrightness.y), lerp(c.a, uPowerBrightness.w, uPowerBrightness.z));
+    vTex0 = aTex0 + uTextureOffset.xy;
+    vHeadlight = aPosition.x * uHeadlightWvp[0] + aPosition.y * uHeadlightWvp[1] + aPosition.z * uHeadlightWvp[2]
+               + uHeadlightWvp[3];
+    vClip = vHeadlight.w * 0.005 + 0.5;
+}

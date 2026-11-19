@@ -26,7 +26,8 @@
     X(cworld_v) X(cworld_f) X(cworld_f_atest) X(cscreen_v) X(cscreen_f) X(cscreen_f_atest) \
     X(ccar_v) X(ccar_f) X(ccar_f_atest) X(cmask_v) X(cmask_f) X(cmask_f_atest) \
     X(cparticle_v) X(cparticle_f) X(cparticle_f_atest) \
-    X(csky_v) X(csky_f) X(csky_f_atest) X(cucap_v)
+    X(csky_v) X(csky_f) X(csky_f_atest) X(cucap_v) \
+    X(cworldhl_v) X(cworldhl_f) X(cworldhl_f_atest)
 
 extern "C" {
 #define NFSU_DECLARE_SHADER(name) extern const unsigned char shader_##name[];

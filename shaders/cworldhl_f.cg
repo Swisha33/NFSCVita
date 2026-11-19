@@ -1,0 +1,25 @@
+// Carbon world effects with the projected headlight (ps_1_1 of the techniques cworldhl_v names):
+// colour = texture * vertex colour + clip(distance) * headlight(projected) * headlight_colour_scale.x.
+
+float4 main(
+    float4 vColor : COLOR0,
+    float2 vTex0 : TEXCOORD0,
+    float4 vHeadlight : TEXCOORD1,
+    float vClip : TEXCOORD2,
+    uniform sampler2D uTex0,
+    uniform sampler2D uTex1,            // HEADLIGHT_SAMPLER_OLD
+    uniform sampler2D uTex2,            // HEADLIGHT_CLIP_SAMPLER
+    uniform float4 uAlphaTest,
+    uniform float4 uScale,
+    uniform float4 uHeadlight)          // x: headlight_colour_scale.x
+{
+    float4 c = tex2D(uTex0, vTex0) * vColor;
+    float3 beam = tex2D(uTex1, vHeadlight.xy / vHeadlight.w).rgb * tex2D(uTex2, float2(vClip, 0.0)).rgb;
+    c.rgb = saturate((c.rgb + beam * uHeadlight.x) * uScale.x);
+    c = lerp(c, float4(0.0, 1.0, 0.0, 1.0), uScale.y);
+#ifdef ATEST
+    if (uAlphaTest.x * saturate(c.a) < uAlphaTest.y)
+        discard;
+#endif
+    return c;
+}

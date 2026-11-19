@@ -847,6 +847,8 @@ enum CarbonSlot : uint8_t
     CarbonPcaX,                     // 32: UCAP faces, cavPcaWeightsX (after the bones)
     CarbonPcaY,                     // 32
     CarbonPcaZ,                     // 32
+    CarbonHeadlightWvp,             // 16: cmHeadlight1WVP
+    CarbonHeadlight,                // 4: x headlight_colour_scale.x while the pass projects the headlight, else 0
     CarbonSlotCount
 };
 // debug_frame_dump: the Carbon effect and technique whose pass is open (d3dx9_fx.cpp), or null.
