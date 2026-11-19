@@ -66,7 +66,9 @@ card.
 2. On your PC, open the game folder (the one with `NFSC.exe`) and copy **everything inside it** to
    `ux0:data/NFSCVITA/` (VitaShell's FTP or USB mode works). `NFSC.exe` must end up at `ux0:data/NFSCVITA/NFSC.exe`.
    The `MOVIES` folder can be left out.
-3. Start the game from the home screen.
+3. **Highly recommended:** install [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker) (follow its
+   instructions). It lets the port use the Vita's fourth CPU core; the speeds in this README were measured with it.
+4. Start the game from the home screen.
 
 If the game closes right away, `ux0:data/NFSCVITA/nfscvita.log` says why (most often: a missing file or a different
 `NFSC.exe`).
