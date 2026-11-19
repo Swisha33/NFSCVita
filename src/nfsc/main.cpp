@@ -175,22 +175,24 @@ namespace
 {
 
 // Setting ai_drive (from the Mac port's auto_drive, mods/core/nfsc/extras.h): the game's AI drives the player's car,
-// so test runs follow the same route and frame rates can be compared. Game_ForceAIControl 0065c2c0 (cdecl int, the
-// Mac port passes 1) while the game state [0xa99bbc] is 6 (driving), called again after each return to state 6.
+// so test runs follow the same route and frame rates can be compared. Game_ForceAIControl 0065c2c0 (cdecl): its
+// argument picks the player (0 the first of the list [0xa9ff5c] / count [0xa9ff64], else the last), it finds the
+// vehicle's AI control interface (0060cb50 with 0x4087c0) and switches AI on (+0xc(1)) unless +0x8 says it is on.
+// Called every 30 frames while the game state [0xa99bbc] is 6 (driving): in the career the state stays 6 through the
+// prologue's scenes and restarts, and the player's car is replaced or handed back to the pad there, so the single
+// call at the start (run 250: once, during the intro scene) left the car standing (BUSTED loop).
 bool s_aiDrive = false;
 
 void aiDrivePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static bool s_forced = false;
-    const bool driving = app->getMemory<x86::reg32>(0x00a99bbc) == 6;
-    if (!driving)
+    static uint32_t s_frames = 0, s_calls = 0;
+    if (app->getMemory<x86::reg32>(0x00a99bbc) != 6)
     {
-        s_forced = false;
+        s_frames = 0;
         return;
     }
-    if (s_forced)
+    if (s_frames++ % 30 != 0)
         return;
-    s_forced = true;
     // cdecl call with one argument: a return-address slot, then the argument; the callee pops the slot.
     const x86::reg32 eax = cpu.eax, ecx = cpu.ecx, edx = cpu.edx;
     cpu.esp -= 8;
@@ -201,7 +203,8 @@ void aiDrivePresent(win32::WinApplication* app, x86::CPU& cpu)
     cpu.eax = eax;
     cpu.ecx = ecx;
     cpu.edx = edx;
-    pf::logInfo("ai_drive: Game_ForceAIControl(1) called");
+    if (s_calls++ == 0)
+        pf::logInfo("ai_drive: Game_ForceAIControl(1) called (again every 30 frames while driving)");
 }
 
 // Setting debug_poke (development): guest dwords written at every Present, "ADDR=VALUE,..." in hex, e.g. the

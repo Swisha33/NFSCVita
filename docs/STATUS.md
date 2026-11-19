@@ -972,6 +972,27 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       - Run 264 (user): **no crash**, prologue -> free roam. 24 MB of buffer copies freed after the first load; the
         reservation held (one 4 MB block inside it) and the section loaded three more times in the same range.
       - Release v0.1.1 (pre-release): this fix, the sliding textures, cutscene characters.
+   266-269 (2026-11-19). **ai_drive in the career; GXM out of host memory.**
+      - Game_ForceAIControl 0065c2c0: the argument picks the player (0 first, else last of [0xa9ff5c] / count
+        [0xa9ff64]); it switches the vehicle's AI control interface on (0060cb50 with 0x4087c0, +0xc(1)) unless +0x8
+        says it is on. ai_drive called it once on entering state 6; in the career the state stays 6 through scenes
+        and restarts (run 250: one call, during the intro scene, then the BUSTED loop). Now every 30 frames while
+        in state 6.
+      - Runs 266 / 267 (career start, ai_drive): `sceGxmCreateRenderTarget(256x256) failed: 0x805b0002` (GXM out of
+        memory). New log line at that failure: free user -2048 KB, cdram 39936 KB. The gxm_buffers heap had used up
+        phycont and put two 8 MB chunks in main memory; GPU heaps never gave chunks back.
+      - Fix (gxm_render.cpp): phycont overflow goes to video memory (CDRAM) first, main memory last; the texture
+        heap (CDRAM) gets main memory as its last resort; a chunk that becomes empty is freed (not the first).
+        Runs 268 / 269: no crash in 7-8 min, 30 fps; the career resumed from the save (scene intro05ng02, the
+        prologue was done in run 264), then streaml5ra sections load and unload in turn (the car moves). Not yet
+        seen on screen: screenshot_every stopped after two shots in run 269 (a loading screen) and wrote none in
+        run 268 -- a screenshot bug to look at.
+      - User test with this build (2026-11-19): free roam fine. Their crash before it: the in-game screen resolution set
+        to the highest; restarted at default. GitHub issue #1 (v0.1.0, sizzle2100-svg) crashed silently after ~7 min;
+        issue #2: no headlights, picture stretched. The stretch is real for everyone: the game makes a 640x480 (4:3)
+        device by default ("back buffer 640x480 with depth") and the port stretches it to 960x544. Next: widescreen
+        (Mac port core.nfsc stages 1-2 from ThirteenAG: 00712ac0, 0071b780 projection, HUD; UG2 Vita widescreen.cpp),
+        then headlights, and what high resolutions do (crash).
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).

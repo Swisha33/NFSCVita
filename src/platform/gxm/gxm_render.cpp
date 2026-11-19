@@ -323,10 +323,26 @@ bool GpuHeap::addChunk(uint32_t minimum)
     SceUID uid = sceKernelAllocMemBlock(m_name, m_type, size, nullptr);
     if (uid < 0 && phycont)
     {
-        // The physically contiguous pool is small (26 MB free at startup): main memory once it is used up.
+        // The physically contiguous pool is small (26 MB free at startup): video memory next, main memory last.
+        // Main memory first starved the render targets (run 267, career start: free user -2 MB, cdram 39 MB, then
+        // sceGxmCreateRenderTarget out of memory).
+        uid = sceKernelAllocMemBlock(m_name, SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, alignUp(size, 256 * 1024),
+                                     nullptr);
+        if (uid >= 0)
+            logInfo("gxm: %s heap: phycont memory used up, chunk in video memory", m_name);
+    }
+    if (uid < 0 && phycont)
+    {
         uid = sceKernelAllocMemBlock(m_name, SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_NC_RW, size, nullptr);
         if (uid >= 0)
-            logInfo("gxm: %s heap: phycont memory used up, chunk in main memory", m_name);
+            logInfo("gxm: %s heap: phycont and video memory used up, chunk in main memory", m_name);
+    }
+    if (uid < 0 && m_type == SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW)
+    {
+        // Video memory is shared with the buffer heap's overflow above: main memory as the last resort.
+        uid = sceKernelAllocMemBlock(m_name, SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_NC_RW, alignUp(size, 4096), nullptr);
+        if (uid >= 0)
+            logInfo("gxm: %s heap: video memory used up, chunk in main memory", m_name);
     }
     if (uid < 0)
         return false;
@@ -401,6 +417,17 @@ void GpuHeap::free(void* pointer)
         }
     }
     c->holes[start] = size;
+    // An empty chunk goes back to the system (but the first one stays): the heaps grew in load peaks and kept that
+    // memory for good, and a later render target found no main memory left (run 266, career start: GXM out of
+    // memory after a fifth gxm_buffers chunk).
+    if (size == c->size && c != m_chunks.front())
+    {
+        m_chunks.erase(std::find(m_chunks.begin(), m_chunks.end(), c));
+        sceGxmUnmapMemory(c->base);
+        sceKernelFreeMemBlock(c->uid);
+        logInfo("gxm: %s heap -%u KB", m_name, c->size / 1024);
+        delete c;
+    }
 }
 
 // ---- Initialisation ------------------------------------------------------------------------------------------------
@@ -1020,6 +1047,15 @@ SceGxmRenderTarget* FrameRenderer::renderTarget(uint32_t width, uint32_t height)
     params.driverMemBlock = -1;
     SceGxmRenderTarget* target = nullptr;
     const int result = sceGxmCreateRenderTarget(&params, &target);
+    if (result < 0)
+    {
+        SceKernelFreeMemorySizeInfo info;
+        memset(&info, 0, sizeof(info));
+        info.size = sizeof(info);
+        if (sceKernelGetFreeMemorySize(&info) >= 0)
+            logInfo("gxm: render target failed with free user %d KB, cdram %d KB, phycont %d KB",
+                    info.size_user / 1024, info.size_cdram / 1024, info.size_phycont / 1024);
+    }
     if (result < 0)
         fatal("sceGxmCreateRenderTarget(%ux%u) failed: 0x%08x", width, height, result);
     m_targets[key] = target;
