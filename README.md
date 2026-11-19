@@ -30,8 +30,8 @@
 > 20 fps (target: 30) and there are known issues. Expect bugs; save often.
 
 > **Vibe-coded.** This port was written almost entirely by an AI coding assistant
-> ([Claude Code](https://claude.com/claude-code)), directed and play-tested on a real Vita by the maintainer. Every
-> change is measured on hardware and logged in [docs/STATUS.md](docs/STATUS.md), but expect rough edges in the code.
+> ([Claude Code](https://claude.com/claude-code)), directed and play-tested on a real Vita by the maintainer. Changes
+> are tested on hardware and logged in [docs/STATUS.md](docs/STATUS.md), but expect rough edges in the code.
 
 This is not a decompilation or a rewrite of the game. The code of your own `NFSC.exe` is translated to C++ ahead of
 time (static recompilation) and runs on the Vita with replacements for what the Vita lacks: Windows, Direct3D 9
