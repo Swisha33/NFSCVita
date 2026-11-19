@@ -993,6 +993,23 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         device by default ("back buffer 640x480 with depth") and the port stretches it to 960x544. Next: widescreen
         (Mac port core.nfsc stages 1-2 from ThirteenAG: 00712ac0, 0071b780 projection, HUD; UG2 Vita widescreen.cpp),
         then headlights, and what high resolutions do (crash).
+   270-272 (2026-11-19). **Widescreen (issue #2): done.** Clue: the macOS port's core.nfsc (ThirteenAG's
+      NFSCarbon.WidescreenFix, MIT; same exe, so its addresses apply as they are). The 640x480 back buffer stays
+      (no extra pixels); everything is laid out for the 960x544 display and squeezed into it (anamorphic), so the
+      Vita's stretch gives the right shape. generate.py WIDESCREEN_PATCHES: projection 0071b780 reads its aspect
+      term and three constants from slots 0xc2b440..0xc2b450; the minimap's 120.0 (005d52f9/005d5356) and the menu
+      width 640.0 (cursor 00731665, Autosculpt line 007c9214/007c925b) read slots 0xc2b454/0xc2b458; the six HUD
+      centre immediates 320.0 and the PiP x / width get the 960x544 values; the game's widescreen HUD layout is
+      forced on (SETZ 005dc507/005d52b2, JNZ 005b6bae/005b6b5b). src/nfsc/widescreen.cpp: FE floats 009e8f8c
+      (x scale 2/(480*aspect)), 00a604ac / 009c778c (centre 423.5), 009d5f3c, arrest blur 009d0584; native hooks
+      on 0071b780 (views 1/4 hor+: aspect 1/1, x 0.7304, half angle 0.4347, y 1.225; mirror view 3 37/40; other
+      views the game's values), 005d5280 (left/right HUD groups moved out by 103.5 via FindObject/GetCenter/
+      SetCenter) and 00750b30 (mirror/PiP quads narrowed by (4/3)/aspect). Setting widescreen_fov 0/1/2 (the fix's
+      view scaling). No off switch: the immediates are compiled in.
+      Run 271 (boot race, ai_drive): views 1/3/4 hooked, "widescreen HUD on"; screenshots: car in proportion,
+      round minimap and tacho at the screen corners. Run 272 (front end): title, career menu and garage centred
+      4:3 with the right shape. Not ported: rain droplets (00722cb0), loading-screen pillarboxes, water reflection
+      size, movie placement. Headlights: no beam on the road in run 271's night shots (next).
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).

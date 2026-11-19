@@ -23,6 +23,12 @@ Carbon's addresses and data layouts used in `src/lib/winapi/d3dx9_fx.cpp` (fx_2_
 `src/nfsc/pad.cpp` (controller binding table) and `src/nfsc/main.cpp`, from nfs-carbon-mac by vasist15-source
 (github.com/vasist15-source/nfs-carbon-mac), MIT License.
 
+## NFSCarbon.WidescreenFix
+
+The widescreen values and patch sites in `src/nfsc/widescreen.cpp` and `tools/recompiler/generate.py`
+(WIDESCREEN_PATCHES) follow ThirteenAG's NFSCarbon.WidescreenFix (github.com/ThirteenAG/WidescreenFixesPack),
+MIT License, as nfs-carbon-mac's core.nfsc applies it.
+
 ## Capstone
 
 The recompiler disassembles with Capstone (BSD 3-Clause License), version pinned in

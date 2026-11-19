@@ -142,6 +142,7 @@ namespace nfsc
 {
 void installTexturePackFix(win32::WinApplication& app);
 void installUnlockedAudio(win32::WinApplication& app);
+void installWidescreen(win32::WinApplication& app);
 void installPad();
 void padPresent(win32::WinApplication* app, x86::CPU& cpu);
 }
@@ -461,6 +462,8 @@ int main(int, char**)
         const int audioKb = pf::Config::getInt("audio_pool_kb", 32768);
         app.getMemory<x86::reg32>(0x00c2b404) = x86::reg32(audioKb) * 1024u;
         pf::logInfo("memory: audio pool [0xc2b404] %d KB (PC: 32768)", audioKb);
+        // Widescreen: HUD/menu layout and projection slots for the 960x544 display (widescreen.cpp).
+        nfsc::installWidescreen(app);
         // [0xa9e6d8] is the game's skip-movies switch (Extra Options): a front-end movie object (005baea0, type 7)
         // that finds it set posts "movie done" (0xc3960eb9) at once. Movies are slow (VP6 decoded by guest code,
         // ~8 fps) and grey (no shader translation yet), so they are skipped unless skip_movies=off.

@@ -185,7 +185,9 @@ changed. The build options are described at the top of `tools/build.ps1`.
 - [danos-x5](https://github.com/danos-x5): [NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VITA) (control layout,
   on-Vita shader compiler, sampling profiler, LiveArea art script, many ideas)
 - [vasist15-source](https://github.com/vasist15-source): [nfs-carbon-mac](https://github.com/vasist15-source/nfs-carbon-mac)
-  (Carbon addresses and data layouts: effects, controls, movies)
+  (Carbon addresses and data layouts: effects, controls, movies, widescreen)
+- [ThirteenAG](https://github.com/ThirteenAG): [WidescreenFixesPack](https://github.com/ThirteenAG/WidescreenFixesPack)
+  (NFSCarbon.WidescreenFix, MIT: the widescreen values)
 - [codepdbh](https://github.com/codepdbh): [nfscarbonpc-androidevolved](https://github.com/codepdbh/nfscarbonpc-androidevolved)
   (Carbon notes)
 - [Grarak](https://github.com/Grarak): [psp2-tooling](https://github.com/Grarak/psp2-tooling) and

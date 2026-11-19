@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import sys
 import tempfile
 import time
@@ -53,8 +54,10 @@ NO_RETURN = []
 # Guest functions replaced by hand-written native code (namespace nfsc::native); the translated body stays as
 # sub_<address>_guest. EA audio kernels (src/nfsc/audio_kernels.cpp): mix 0x8AD305, scale 0x8AD12E, filter 0x89F363.
 # Hot x87 leaves (src/nfsc/native_math.cpp, after NFSUG2_VITA's native _ftol2): _ftol2 0x87EAC0, box transform
-# 0x70F0B0, frustum test 0x71B630, square overlap 0x46FCC0.
-NATIVE_OVERRIDES = [0x8AD305, 0x8AD12E, 0x89F363, 0x87EAC0, 0x70F0B0, 0x71B630, 0x46FCC0, 0x79F9C0]
+# 0x70F0B0, frustum test 0x71B630, square overlap 0x46FCC0. Widescreen hooks (src/nfsc/widescreen.cpp): projection
+# 0x71B780, FEngHud::SetWideScreenMode 0x5D5280, mirror/PiP quad 0x750B30.
+NATIVE_OVERRIDES = [0x8AD305, 0x8AD12E, 0x89F363, 0x87EAC0, 0x70F0B0, 0x71B630, 0x46FCC0, 0x79F9C0,
+                    0x71B780, 0x5D5280, 0x750B30]
 
 # Entries no static analysis finds: reached only through pointers, vtables or as thread starts. Found during the
 # macOS port's bring-up as "call to unknown target" (github.com/vasist15-source/nfs-carbon-mac game.toml).
@@ -84,6 +87,51 @@ EXTRA_ENTRIES = [
     0x00670060,                             # 009e1784, after 0x00670050
     0x0050fe30,                             # deleting destructor, vtable 009cb6b4 (after a float constant)
     0x00500040, 0x00736f70,                 # only "text" references (00a04528..., 00a1a3d0); harmless if never called
+]
+
+# Widescreen (src/nfsc/widescreen.cpp), after ThirteenAG's NFSCarbon.WidescreenFix (MIT) as the macOS port applies it
+# (refs/nfs-carbon-mac game.toml operand_redirects / instruction_patches, mods/core/nfsc/nfsc.c). The game keeps its
+# 640x480 back buffer, which the Vita shows stretched to 960x544; the picture is drawn for the display's shape
+# (anamorphic), so the stretch gives the right proportions without the cost of more pixels. Reads of shared constants
+# go to slots in the zero padding after .rsrc that widescreen.cpp fills; immediates that cannot read a slot get the
+# 960x544 values here.
+def _f32(value):
+    return struct.pack('<f', value).hex()
+
+WS_ASPECT = 960.0 / 544.0
+WS_CENTRE = 240.0 * WS_ASPECT                       # HUD centre: 320 at 4:3
+WS_OFFSET = WS_CENTRE - 320.0                       # side groups move out by this (the game's 120.0)
+WIDESCREEN_PATCHES = [
+    # Projection 0071b780: the aspect term [0xab0acc] / [0xab0ac8] (back buffer height / width), the horizontal
+    # 1.0, the vertical half angle factor 0.5 (second use) and the vertical 1.0 read slots 0xc2b440..0xc2b450.
+    (0x0071b858, 'db05cc0aab00', 'db0540b4c200'),
+    (0x0071b864, 'da35c80aab00', 'da3544b4c200'),
+    (0x0071b8da, 'd83d78249c00', 'd83d48b4c200'),
+    (0x0071b8ec, 'd80d88289c00', 'd80d4cb4c200'),
+    (0x0071b923, 'd83d78249c00', 'd83d50b4c200'),
+    # FEngHud::SetWideScreenMode 005d5280: the minimap's 120.0 (shared constant 0x9cbb94) -> slot 0xc2b454.
+    (0x005d52f9, 'd82594bb9c00', 'd82554b4c200'),
+    (0x005d5356, 'd80594bb9c00', 'd80554b4c200'),
+    # Menu cursor 00731665 and the Autosculpt zone line 007c9214 / 007c925b: * 640.0 -> the wide menu's width.
+    (0x00731665, 'd80d689b9e00', 'd80d58b4c200'),
+    (0x007c9214, 'd80d689b9e00', 'd80d58b4c200'),
+    (0x007c925b, 'd80d689b9e00', 'd80d58b4c200'),
+    # Six HUD set-ups store the HUD centre 320.0.
+    (0x00598db9, 'c78424840000000000a043', 'c7842484000000' + _f32(WS_CENTRE)),
+    (0x00598fb0, 'c78424c40000000000a043', 'c78424c4000000' + _f32(WS_CENTRE)),
+    (0x0059940f, 'c78424840000000000a043', 'c7842484000000' + _f32(WS_CENTRE)),
+    (0x005996a7, 'c78424d40000000000a043', 'c78424d4000000' + _f32(WS_CENTRE)),
+    (0x005a18ba, 'c74424640000a043', 'c7442464' + _f32(WS_CENTRE)),
+    (0x005d2b42, 'c74424640000a043', 'c7442464' + _f32(WS_CENTRE)),
+    # The game's own widescreen HUD layout always on (the fix's SETE and JNZ bytes).
+    (0x005dc507, '0f95c1', '0f94c1'),
+    (0x005d52b2, '0f95c0', '0f94c0'),
+    (0x005b6bae, '7407', '7507'),
+    (0x005b6b5b, '7407', '7507'),
+    # Picture-in-picture (00750d40 -> quad builder 00750b30): width 0.275 -> 0.28, x for the wide screen (the fix's
+    # fPiPUCAPPosition); widescreen.cpp narrows the mirror and PiP quads.
+    (0x00750de6, '68cdcc8c3e', '68' + _f32(0.28)),
+    (0x00750df4, '68f4fdd43c', '68' + _f32(((320.0 + WS_OFFSET) / 320.0 - 1.042) / -2.0)),
 ]
 
 # Byte patches applied to the code before discovery: (address, original bytes, new bytes) in hex. Generation stops
@@ -116,7 +164,7 @@ PATCHES = [
     #   mov eax, [0xa631b8] / neg eax / sbb eax, eax / and eax, 0x1ffc000 / add eax, 0x4000
     #   ->  mov eax, [0xc2b404] / 14 nop
     (0x0051f780, 'a1b831a600f7d81bc02500c0ff010500400000', 'a104b4c200' + '90' * 14),
-]
+] + WIDESCREEN_PATCHES
 
 # Busy-wait loops: the generated code releases the execution lock there so other guest threads can run.
 THREAD_SEGMENTS = []

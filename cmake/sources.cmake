@@ -110,6 +110,7 @@ set(NFSU_GAME_PORT_SOURCES
   src/nfsc/native_math.cpp
   src/nfsc/pad.cpp
   src/nfsc/texturepacks.cpp
+  src/nfsc/widescreen.cpp
 )
 
 # Runtime sources that include headers generated from the game binary (nfsc_layout.h).
