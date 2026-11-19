@@ -1,5 +1,22 @@
 # Release notes
 
+## v0.1.2 (pre-release)
+
+Widescreen and headlights. Install the new `NFSCVita.vpk` over the old one; your game files and saves stay.
+
+### New
+- **Widescreen** ([#2](https://github.com/Swisha33/NFSCVita/issues/2)): the picture is drawn for the Vita's 960x544
+  screen instead of a stretched 4:3 one. Cars and the world keep their shape, the race view shows more to the
+  sides, and the HUD sits at the screen edges; menus are centred. It costs no speed (the game still draws 640x480).
+  Values from ThirteenAG's NFSCarbon.WidescreenFix, as the macOS port uses them. Setting `widescreen_fov=0/1/2`
+  picks the field-of-view variant (default 1).
+- **Headlights** ([#2](https://github.com/Swisha33/NFSCVita/issues/2)): the headlight beam lights the road and walls
+  at night again. `headlights=off` turns it off.
+
+### Fixed
+- A crash at the career start when video memory ran out (render target creation); the GPU heaps now use spare
+  video and main memory and give empty chunks back.
+
 ## v0.1.1 (pre-release)
 
 Bug-fix update for v0.1.0. Install the new `NFSCVita.vpk` over the old one; your game files and saves stay.
