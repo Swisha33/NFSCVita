@@ -98,6 +98,7 @@ void traceText(const char* fn, reg32 dst, const x86::CPU& cpu)
 
 void traceWide(const char* fn, reg32 dst, const x86::CPU& cpu)
 {
+    (void)cpu;
     static const std::string s_text = pf::Config::getString("debug_find", "");
     if (s_text.empty() || !dst)
         return;

@@ -217,7 +217,7 @@ static int watchdogRun(void* argument)
         }
         if (tick % 5 == 0)
             logWatches();
-            logFinds();
+        logFinds();
         const uint64_t idle = pf::ticksUs() - s_lastFrameUs.load(std::memory_order_relaxed);
         if (tick % 5 == 0)
             pf::logInfo("stall: watchdog alive, last frame %u ms ago, %d guest files open (%d parked)",
