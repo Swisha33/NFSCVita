@@ -109,6 +109,20 @@ static void markBlocks(x86::reg32 begin, x86::reg32 count, bool free)
     }
 }
 
+// Soft reservation: the range of the most recently released block of SoftSize or more stays free for the next
+// request of about its size. Smaller blocks are placed outside it while anything outside fits, and inside it only
+// as a fallback (no reclaim, no fatal error). Carbon's city section (74,368,384 bytes, streaml5ra.bun) is read into
+// one buffer, compacted and released, and requested again when the free roam starts after the prologue; in
+// between, vertex buffer shadows, heap chunks and texture lock buffers spread into its range and the request
+// failed with 74 MB free but no range larger than 54 MB (run 253). Keeping the block itself (run 254) cost the
+// texture cache and was taken back within seconds: the game needs that memory between the two loads.
+static const x86::reg32 SoftSize = 48 * 1024 * 1024 / 4096;
+static x86::reg32 s_softBegin = 0;
+static x86::reg32 s_softEnd = 0;
+static uint32_t s_softSaved[s_freeWordCount];
+static x86::reg32 s_softIntrusions = 0;     // fallback placements inside the range, and their blocks
+static x86::reg32 s_softIntrusionBlocks = 0;
+
 // First block from b on whose free bit equals free, or limit.
 static x86::reg32 nextBlock(x86::reg32 b, x86::reg32 limit, bool free)
 {
@@ -228,18 +242,57 @@ bool MemMap::place(x86::reg32 size, Placement placement)
     const bool searchTimed = pf::perf::enabled();
     const uint32_t start = timed ? pf::perf::now() : 0;
     uint32_t searchUs = 0;
+    // Outside the soft reservation first, then after the reclaim (the texture cache) outside again, and only then
+    // inside it.
+    bool intrude = false;
     for (;;)
     {
         s_lock->lock();
         const uint32_t searchStart = searchTimed ? pf::perf::now() : 0;
-        m_block = placement == High ? findHigh(m_blockCount) : findLow(m_blockCount);
+        const x86::reg32 softCount = s_softEnd - s_softBegin;
+        const bool mask = softCount && m_blockCount < softCount / 2 && !intrude;
+        if (mask)
+        {
+            // Search with the reserved range marked used; the free bits and the search hints come back after.
+            const x86::reg32 w0 = s_softBegin >> 5, w1 = (s_softEnd + 31) >> 5;
+            const x86::reg32 lowFree = s_lowFree, highFree = s_highFree;
+            memcpy(s_softSaved, s_freeBits + w0, (w1 - w0) * 4);
+            markBlocks(s_softBegin, softCount, false);
+            m_block = placement == High ? findHigh(m_blockCount) : findLow(m_blockCount);
+            memcpy(s_freeBits + w0, s_softSaved, (w1 - w0) * 4);
+            s_lowFree = lowFree;
+            s_highFree = highFree;
+        }
+        else
+        {
+            m_block = placement == High ? findHigh(m_blockCount) : findLow(m_blockCount);
+        }
         if (searchTimed)
             searchUs += pf::perf::now() - searchStart;
         if (m_block != x86::reg32(-1))
+        {
+            if (softCount && m_blockCount >= softCount / 2)
+            {
+                pf::logInfo("memory: soft reservation of %u KB at 0x%08x ends, block of %u KB at 0x%08x (%u blocks, "
+                            "%u KB placed inside it meanwhile)", softCount * 4, s_addressOffset + s_softBegin * 4096,
+                            m_blockCount * 4, s_addressOffset + m_block * 4096, s_softIntrusions,
+                            s_softIntrusionBlocks * 4);
+                s_softBegin = s_softEnd = 0;
+            }
+            else if (softCount && m_block < s_softEnd && m_block + m_blockCount > s_softBegin)
+            {
+                if (!s_softIntrusions++)
+                    pf::logInfo("memory: soft reservation: first block placed inside it, %u KB", m_blockCount * 4);
+                s_softIntrusionBlocks += m_blockCount;
+            }
             break;
+        }
         s_lock->unlock();
-        if (!s_reclaim || !s_reclaim())
+        if (s_reclaim && s_reclaim())
+            continue;
+        if (!mask)
             return false;
+        intrude = true;
     }
     memset(s_blocks + m_block, 1, m_blockCount);
     markBlocks(m_block, m_blockCount, false);
@@ -269,6 +322,13 @@ MemMap::~MemMap()
     }
     memset(s_blocks + m_block, 0, m_blockCount);
     markBlocks(m_block, m_blockCount, true);
+    if (m_blockCount >= SoftSize)
+    {
+        s_softBegin = m_block;
+        s_softEnd = m_block + m_blockCount;
+        s_softIntrusions = s_softIntrusionBlocks = 0;
+        pf::logInfo("memory: soft reservation of %u KB at 0x%08x", m_blockCount * 4, getBlockStart());
+    }
     if (m_block < s_lowFree)
         s_lowFree = m_block;
     if (m_block + m_blockCount > s_highFree)

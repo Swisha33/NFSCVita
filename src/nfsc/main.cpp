@@ -45,7 +45,9 @@
 
 // Process parameters picked up by the VitaSDK runtime.
 extern "C" {
-int          _newlib_heap_size_user      = 36 * 1024 * 1024;     // run 40: 19.4 MB in use at the career load
+// Run 40: 19.4 MB in use at the career load; runs 253/254: 22976 KB taken at most. 36 -> 30 MB gives the guest
+// arena 6 MB more (it takes the free user memory at startup less a reserve) for the city section's reload.
+int          _newlib_heap_size_user      = 30 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize  = 4 * 1024 * 1024;
 }
 
@@ -247,12 +249,58 @@ void carReflectionPresent(win32::WinApplication* app)
         app->getMemory<x86::reg32>(0x00a65340) = 0;
 }
 
-// Per Present: the pad layout (pad.cpp), car_reflections, debug_poke, then ai_drive.
+// Setting pool_log (diagnostic, seconds, default 0 = off): every N s, the free lists of the game's bMalloc pools
+// (table 0xa84c20, 00470d80; free list at pool + 4: [node] next, [node + 8] size, as 00476560 walks it). The audio
+// pool is pool [0xa59958] (0051f7c1), [0xa8c2c0] bytes: how much of its 32 MB the sound banks really take, to size
+// audio_pool_kb (guest memory for the city section's 74 MB load buffer, run 253).
+void poolLogPresent(win32::WinApplication* app)
+{
+    static const uint64_t s_every = uint64_t(std::max(0, pf::Config::getInt("pool_log", 0))) * 1000000u;
+    static uint64_t s_next = 0;
+    if (!s_every)
+        return;
+    const uint64_t now = sceKernelGetProcessTimeWide();
+    if (now < s_next)
+        return;
+    s_next = now + s_every;
+    const auto word = [](x86::reg32 address) {
+        x86::reg32 value = 0;
+        if (win32::MemMap::isGuestRange(address, 4))
+            memcpy(&value, win32::g_guestBase + address, 4);
+        return value;
+    };
+    const x86::reg32 audioPool = word(0x00a59958);
+    char line[512];
+    int length = 0;
+    for (x86::reg32 n = 0; n < 16; ++n)
+    {
+        const x86::reg32 pool = word(0x00a84c20 + n * 4);
+        if (!pool)
+            continue;
+        x86::reg32 largest = 0, total = 0, count = 0;
+        for (x86::reg32 node = word(pool + 4); node && node != pool + 4 && count < 100000; node = word(node))
+        {
+            const x86::reg32 size = word(node + 8);
+            largest = std::max(largest, size);
+            total += size;
+            ++count;
+        }
+        length += snprintf(line + length, sizeof(line) - size_t(length), " %u%s: %u KB free (%u, largest %u KB);",
+                           unsigned(n), n == audioPool ? " audio" : "", unsigned(total / 1024), unsigned(count),
+                           unsigned(largest / 1024));
+        if (length >= int(sizeof(line)) - 64)
+            break;
+    }
+    pf::logInfo("pool_log: audio pool %u KB; pools%s", unsigned(word(0x00a8c2c0) / 1024), line);
+}
+
+// Per Present: the pad layout (pad.cpp), car_reflections, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
     nfsc::padPresent(app, cpu);
     carReflectionPresent(app);
     pokePresent(app);
+    poolLogPresent(app);
     if (s_aiDrive)
         aiDrivePresent(app, cpu);
 }
