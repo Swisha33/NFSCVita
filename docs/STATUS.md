@@ -615,7 +615,7 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       LOD 0, car environment map 1, shader detail 1, particles and visual treatment on.
       Run 100 (timing_log + sampler, as 96): **12-19 fps vs 10-16**, triangles 16-26k vs 28-38k, GPU 22-26 ms vs
       28-31; looks fine in the screenshots (car, stripes, lights, smoke).
-   101-125 (2026-11-18 night, user asleep). **Unattended test runs**:
+   101-125 (2026-11-18 night). **Unattended test runs**:
       - auto_input (src/lib/controls.cpp): a timed script of pad inputs added to the real pad, e.g.
         "30-90:circle:tap;95-400:triangle;100-400:sleft:weave" (segments FROM-TO:inputs[:hold|tap|weave]; sticks
         sleft/sright/sup/sdown, rleft/rright/rup/rdown). In Carbon's layout for our pad: **Triangle = throttle**
