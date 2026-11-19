@@ -26,7 +26,7 @@
 
 </div>
 
-> **Version 0.1.0, early pre-release.** Races, free roam and the career start work, but the game runs at about
+> **Version 0.1.1, early pre-release.** Races, free roam and the career start (through the prologue into the free roam) work, but the game runs at about
 > 20 fps (target: 30) and there are known issues. Expect bugs; save often.
 
 > **Vibe-coded.** This port was written almost entirely by an AI coding assistant
@@ -135,7 +135,8 @@ Lines starting with `#` are comments.
 - Movies are skipped: the game's VP6 decoder is too slow on the Vita in this version.
 - Memory is tight: Carbon's PC streaming pools are larger than the Vita's memory. The pools are shrunk, which can
   make the world fill in late after a fast move into a new area. Report crashes with the log, please.
-- Only the career start, races and free roam have been tested so far; later parts of the career are untested.
+- Only the career start (prologue into the first free roam), races and free roam have been tested so far; later
+  parts of the career are untested.
 - No online play.
 - Only the one version 1.4 `NFSC.exe` above is supported.
 

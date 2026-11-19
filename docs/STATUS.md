@@ -954,6 +954,24 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         Run 260: 0 of 2000 commits, apart from a few IDI_WORLD_FX t1 draws whose x offset cycles 0..1 (real
         scrolling textures); camera switched three times, screenshots normal.
       - auto_input knows the rear touch quadrants (rear_ul, rear_ur, rear_ll, rear_lr; rear_lr = camera).
+   261-263 (2026-11-19). **Free roam still crashed; guest copies of static buffers become reclaimable.**
+      - Run 261 (user, prologue -> free roam with the soft reservation): same fatal error; 80624 KB free (6 MB more
+        than run 253), largest range 62080 KB. A 5996 KB block went into the reservation right after the first
+        load, and between the loads the texture cache was flushed dozens of times: the arena is full for the whole
+        prologue, so placement alone cannot keep 72.6 MB together. pool_log in the career: audio pool 15.4 MB free
+        (but 2.3 MB in a city boot race), car sub-pool 6-18 MB free.
+      - The game needs ~10 MB more free memory in that stretch. Biggest candidate: the guest copies of vertex /
+        index buffers (~25 MB, 2000+ blocks). The GPU draws from its own copy; the guest copy is only what Lock
+        hands out. Buffer::evictShadows (d3d9_resources.cpp) frees the guest copy of every static buffer (not
+        D3DUSAGE_DYNAMIC) that is unlocked and was last unlocked 2 s or more ago; Lock copies it back from the GPU
+        copy. It is the second step of the d3d9 reclaim, after the texture cache. Lock / Unlock / eviction share a
+        recursive mutex. Still-locked buffers (Autosculpt, Mac kit change 27) are never touched.
+      - Run 262 (boot race): no eviction needed. Run 263 with the test setting debug_evict_buffers=300 (evict every
+        300 frames): 3-15 MB freed each time, screenshots normal, frames per 10 s as run 262. Stale pointers kept
+        after Unlock would show as broken geometry: none seen.
+      - Run 264 (user): **no crash**, prologue -> free roam. 24 MB of buffer copies freed after the first load; the
+        reservation held (one 4 MB block inside it) and the section loaded three more times in the same range.
+      - Release v0.1.1 (pre-release): this fix, the sliding textures, cutscene characters.
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).

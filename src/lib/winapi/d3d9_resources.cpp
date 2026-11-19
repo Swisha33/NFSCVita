@@ -10,6 +10,8 @@
 #include <platform/perf.h>
 #include <platform/sync.h>
 #include <algorithm>
+#include <psp2/kernel/processmgr.h>
+#include <unordered_set>
 
 namespace win32 { namespace d3d9
 {
@@ -158,17 +160,23 @@ struct KeptLevels
             pf::perf::uploadCache(bytes, count);
     }
 
+    // The texture cache first; once it is empty, the guest copies of static vertex / index buffers.
     static bool reclaim()
     {
-        KeptLevels& k = get();
-        pf::LwLockGuard guard(k.mutex);
-        if (!k.oldest)
-            return false;
-        pf::logInfo("d3d9: guest memory exhausted, %u kept texture levels (%u bytes) dropped", k.count, k.bytes);
-        while (k.oldest)
-            k.drop(k.oldest, true);
-        k.report();
-        return true;
+        {
+            KeptLevels& k = get();
+            pf::LwLockGuard guard(k.mutex);
+            if (k.oldest)
+            {
+                pf::logInfo("d3d9: guest memory exhausted, %u kept texture levels (%u bytes) dropped", k.count,
+                            k.bytes);
+                while (k.oldest)
+                    k.drop(k.oldest, true);
+                k.report();
+                return true;
+            }
+        }
+        return Buffer::evictShadows();
     }
 };
 
@@ -729,6 +737,27 @@ HRESULT Surface::UnlockRect(WinApplication* app, x86::CPU& cpu)
 
 // ---- Buffer --------------------------------------------------------------------------------------------------------
 
+// Every buffer, for evictShadows. The guest copies of vertex / index buffers ("buffer" blocks, ~25 MB in the free
+// roam, run 261) are what the game locks; the GPU reads its own copy. Static ones are written once at load, so under
+// memory pressure their guest copy can go and come back at the next Lock: Carbon's city section reload (74 MB in one
+// block, after the prologue) found the arena full of them (run 261: 80 MB free, largest range 62 MB). Lock, Unlock
+// and the eviction hold the recursive mutex (Lock may allocate, and the allocation may reclaim).
+namespace
+{
+struct Buffers
+{
+    pf::LwMutex                 mutex{"d3d9_buffers", true};
+    std::unordered_set<Buffer*> all;
+};
+Buffers& buffers()
+{
+    static Buffers s_buffers;
+    return s_buffers;
+}
+const uint64_t EvictAfterUs = 2000000;
+const DWORD UsageDynamic = 0x200;   // D3DUSAGE_DYNAMIC
+}
+
 Buffer::Buffer(Device* device, Kind kind, UINT size, DWORD usage, DWORD pool, DWORD format)
     :   Object(kind)
     ,   m_device(device)
@@ -740,10 +769,46 @@ Buffer::Buffer(Device* device, Kind kind, UINT size, DWORD usage, DWORD pool, DW
     ,   m_storage(gpu().createBuffer(size))
 {
     device->addRef();
+    m_unlockUs = sceKernelGetProcessTimeWide();
+    Buffers& b = buffers();
+    pf::LwLockGuard guard(b.mutex);
+    b.all.insert(this);
+}
+
+bool Buffer::evictShadows()
+{
+    Buffers& b = buffers();
+    std::vector<MemMap*> freed;
+    uint32_t bytes = 0;
+    {
+        pf::LwLockGuard guard(b.mutex);
+        const uint64_t now = sceKernelGetProcessTimeWide();
+        for (Buffer* buffer : b.all)
+        {
+            if (!buffer->m_shadow || buffer->m_locks || !buffer->m_storage || (buffer->m_usage & UsageDynamic)
+                || now - buffer->m_unlockUs < EvictAfterUs)
+                continue;
+            bytes += buffer->m_shadow->getBlockSize();
+            freed.push_back(buffer->m_shadow);
+            buffer->m_shadow = nullptr;
+        }
+    }
+    if (freed.empty())
+        return false;
+    pf::logInfo("d3d9: guest memory exhausted, guest copies of %u static buffers (%u KB) freed",
+                unsigned(freed.size()), bytes / 1024);
+    for (MemMap* shadow : freed)
+        delete shadow;
+    return true;
 }
 
 Buffer::~Buffer()
 {
+    {
+        Buffers& b = buffers();
+        pf::LwLockGuard guard(b.mutex);
+        b.all.erase(this);
+    }
     delete m_shadow;
     if (m_storage)
         gpu().release(m_storage);
@@ -795,6 +860,13 @@ HRESULT Buffer::Lock(WinApplication* app, x86::CPU& cpu, UINT offset, UINT size,
         return D3DERR_INVALIDCALL;
     if (!size || offset + size > m_size)
         size = m_size - offset;
+    pf::LwLockGuard guard(buffers().mutex);
+    if (!m_shadow)
+    {
+        // Evicted (evictShadows): back from the GPU copy, which holds every byte written so far.
+        m_shadow = new MemMap(m_size ? m_size : 1, MemMap::Low, pf::perf::AllocBuffer);
+        memcpy(host(m_shadow->getBlockStart()), m_storage->data, m_size);
+    }
     if (m_locks++ == 0)
     {
         pf::perf::event(pf::perf::EventBufferLocks, 1);
@@ -830,10 +902,12 @@ HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
 {
     RC_USE(app);
     RC_USE(cpu);
-    if (m_locks == 0)
+    pf::LwLockGuard guard(buffers().mutex);
+    if (m_locks == 0 || !m_shadow)
         return D3DERR_INVALIDCALL;
     if (--m_locks)
         return D3D_OK;
+    m_unlockUs = sceKernelGetProcessTimeWide();
     if (s_unlockObserver && m_shadow)
         s_unlockObserver(guest(), m_shadow->getBlockStart() + m_lockOffset, m_lockSize);
     if (m_lockFlags & D3DLOCK_READONLY)

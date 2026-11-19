@@ -564,8 +564,12 @@ public:
     bool valid() const                      { return m_storage != nullptr; }
     UINT size() const                       { return m_size; }
     DWORD format() const                    { return m_format; }
-    // Guest address of the memory Lock hands out (offset 0); it keeps the bytes written until the next write.
+    // Guest address of the memory Lock hands out (offset 0), 0 while evicted.
     x86::reg32 shadowAddress() const;
+    // Guest memory reclaim (after the texture cache): frees the guest copy of every static buffer (not
+    // D3DUSAGE_DYNAMIC) that is not locked and was last unlocked 2 s or more ago; the next Lock copies it back
+    // from the GPU copy. Any thread. True when something was freed.
+    static bool evictShadows();
     // Game thread: called at each last Unlock with the buffer's guest COM pointer and the locked range of its
     // memory, before the bytes go to the GPU copy; null stops it.
     typedef void (*UnlockObserver)(x86::reg32 buffer, x86::reg32 data, UINT size);
@@ -590,6 +594,7 @@ private:
     UINT                    m_lockOffset = 0, m_lockSize = 0;
     DWORD                   m_lockFlags = 0;
     int                     m_locks = 0;
+    uint64_t                m_unlockUs = 0;     // last Unlock, process time
 };
 
 // IDirect3DVolumeTexture9 (Carbon: the colour-grading LUT made by 0073c1a0 and filled by D3DXFillVolumeTexture, and

@@ -1,5 +1,23 @@
 # Release notes
 
+## v0.1.1 (pre-release)
+
+Bug-fix update for v0.1.0. Install the new `NFSCVita.vpk` over the old one; your game files and saves stay.
+
+### Fixed
+- **Crash when the free roam starts after the career prologue** ("guest memory exhausted"). The city's 74 MB
+  section is loaded again at that point and no longer finds its memory taken: the freed range is kept for it, and
+  under memory pressure the port now frees its own copies of static vertex/index buffers (they come back when the
+  game needs them).
+- **Road and building textures sliding when the camera view changes.** Some world shaders were given a random
+  texture offset; it is now zero as on PC.
+- **Missing characters in cutscenes**: bodies and faces are drawn (skinned meshes and the facial animation).
+
+### Changes
+- About 6 MB more memory for the game (smaller host heap).
+- New diagnostic settings for bug reports: `pool_log=N` (the game's memory pools every N seconds),
+  `debug_texoffset=on`.
+
 ## v0.1.0 (pre-release)
 
 First public build of the Need for Speed Carbon (PC v1.4) port to the PS Vita. **Early and rough**: it boots,

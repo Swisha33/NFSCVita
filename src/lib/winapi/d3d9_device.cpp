@@ -715,6 +715,11 @@ HRESULT Device::Present(WinApplication* app, x86::CPU& cpu, const RECT* source, 
     if (source || dest)
         D3D_LOG_ONCE("d3d9: Present rectangles ignored");
     bridge::runPresentHook(app, cpu);
+    // Setting debug_evict_buffers=N (test): every N frames, the guest copies of static buffers go as on memory
+    // exhaustion (Buffer::evictShadows), to check that the copies come back intact at the next Lock.
+    static const int s_evictEvery = pf::Config::getInt("debug_evict_buffers", 0);
+    if (s_evictEvery > 0 && m_frame && m_frame->index % uint32_t(s_evictEvery) == 0)
+        Buffer::evictShadows();
     // A frame without draws still shows (black), so the pacing stays the same.
     frame(app, cpu);
     if (s_dumping)
