@@ -279,7 +279,7 @@ PadSample readPad()
 // ---- Scripted input (development) ----
 // Setting auto_input: test runs without anyone at the Vita. Segments separated by ';', each
 // "FROM-TO:INPUTS[:MODE]" with seconds since start, INPUTS joined by '+' (cross circle square triangle l r select
-// start up down left right; sticks sleft sright sup sdown (left), rleft rright rup rdown (right)), MODE hold (default), tap (0.2 s
+// start up down left right; rear touch quadrants rear_ul rear_ur rear_ll rear_lr; sticks sleft sright sup sdown (left), rleft rright rup rdown (right)), MODE hold (default), tap (0.2 s
 // every 2 s) or weave (the left stick swings -0.6 .. 0.6 with a 6 s period, for steering). Example:
 // "35-80:circle:tap;80-600:cross:hold;80-600:sleft:weave". The script's inputs add to the real pad.
 struct ScriptSegment
@@ -326,7 +326,8 @@ static std::vector<ScriptSegment> loadScript()
             static const struct { const char* name; Input input; } names[] = {
                 { "cross", Cross }, { "circle", Circle }, { "square", Square }, { "triangle", Triangle },
                 { "l", L }, { "r", R }, { "select", Select }, { "start", Start }, { "up", DpadUp },
-                { "down", DpadDown }, { "left", DpadLeft }, { "right", DpadRight } };
+                { "down", DpadDown }, { "left", DpadLeft }, { "right", DpadRight },
+                { "rear_ul", RearL2 }, { "rear_ur", RearR2 }, { "rear_ll", RearL3 }, { "rear_lr", RearR3 } };
             for (const auto& e : names)
                 if (n == e.name)
                     g.inputs |= bit(e.input);

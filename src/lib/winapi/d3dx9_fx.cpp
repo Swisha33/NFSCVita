@@ -524,13 +524,17 @@ public:
         return m_nameKind;
     }
     // Floats of a numeric parameter (n of them, zero-filled), false when the effect has no such parameter.
+    // Zeros when the effect has no such parameter: IDI_WORLDNORMALMAP_FX / WORLDPRELIT_FX / WORLDREFLECT_FX have no
+    // cvTextureOffset, and the uninitialized array the world family passed in held stack leftovers of the camera
+    // maths, added to every UV: road and building textures slid when the camera view changed (run 259:
+    // debug_texoffset, 70 % of the world commits with values like (0.95, -0.027, -0.298, -0.296)).
     bool floatsOf(const char* name, float* out, uint32_t n) const
     {
+        memset(out, 0, n * 4);
         const int i = literalIndex(name);
         if (i < 0)
             return false;
         const std::vector<uint8_t>& v = m_params[size_t(i)].v();
-        memset(out, 0, n * 4);
         memcpy(out, v.data(), std::min<size_t>(v.size(), n * 4));
         return true;
     }
@@ -1641,6 +1645,31 @@ void applyFamily(FxEffect& fx, Device& device)
         {
             pb[2] = 1.0f;
             pb[3] = 0.5f;
+        }
+    }
+    // Setting debug_texoffset (diagnostic): every 2000 world commits, how many had a nonzero cvTextureOffset and
+    // the last such value with its effect / technique (sliding road and building textures after a camera change).
+    static const bool s_debugOffset = pf::Config::getBool("debug_texoffset", false);
+    if (s_debugOffset)
+    {
+        static uint32_t s_commits = 0, s_nonzero = 0;
+        static float s_last[4] = {};
+        static const char* s_lastName = "";
+        static uint32_t s_lastTechnique = 0;
+        ++s_commits;
+        if (offset[0] != 0.0f || offset[1] != 0.0f)
+        {
+            ++s_nonzero;
+            memcpy(s_last, offset, sizeof(s_last));
+            s_lastName = fx.name().c_str();
+            s_lastTechnique = fx.m_technique;
+        }
+        if (s_commits >= 2000)
+        {
+            pf::logInfo("debug_texoffset: %u of %u world commits with a texture offset, last %s t%u (%g, %g, %g, %g)",
+                        s_nonzero, s_commits, s_lastName, s_lastTechnique, double(s_last[0]), double(s_last[1]),
+                        double(s_last[2]), double(s_last[3]));
+            s_commits = s_nonzero = 0;
         }
     }
     carbonBlockStore(d, id, CarbonWvp, wvp, 16);

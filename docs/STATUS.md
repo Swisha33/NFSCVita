@@ -918,6 +918,44 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         texture. Run 248: faces right (eyes, mouth animation). The protagonist's face stays blurred on purpose (the
         game hides it).
       - Settings: carbon_bones (default on: bodies and faces), ucap_technique.
+   253-258 (2026-11-19). **Free-roam crash after the prologue: the city section's range.**
+      - Run 253 (user): entering the free roam after the prologue, `guest memory exhausted (requested 74368384
+        bytes)`: the city's section 2500 (streaml5ra.bun at 14405632) is requested a second time; 74480 KB free in
+        417 ranges, largest 54948 KB. Its first load (career start) read it into one heap block at 0x03996000,
+        compacted it and released it; in between, other blocks spread into that range.
+      - 0079ebbb: `cmp si, 0x9c4 / mov bl, 1` sends section 2500 to the main heap (bMalloc flags 0x2000) whatever
+        pool 7 holds, by design; run 255 with stream_track_kb=74000 confirmed: still a heap block, and the bigger
+        pool then left no room for it (fatal at the first load). Other ports: nothing on this (UG2 has no such
+        section; the Mac/Android ports have the PC's memory).
+      - Run 254: parking the released block in heap.cpp for the next request (released only as a last-resort
+        reclaim) failed: the race load needed that memory within seconds (12.5 MB texture cache flushed, then the
+        parked block given back). Kept as a patch only.
+      - New setting pool_log=N (seconds): free lists of the game's bMalloc pools (table 0xa84c20). Run 256 (boot
+        race): audio pool (pool 2, 32 MB) 2.3 MB free -> no savings there; car sub-pool (pool 6, 24 MB) 14-17 MB
+        free in a 3-car race (but run 39: 16 MB broke the career car loader).
+      - **Fix: soft reservation** (memmap.cpp): the range of the last released block of 48 MB or more stays free
+        for a request of at least half its size. Other blocks search outside it first, then after the reclaim (the
+        texture cache) outside again, and only then inside it (logged: "soft reservation: first block placed inside
+        it", and at the end how much went in). Plus newlib heap 36 -> 30 MB (peak 22976 KB taken): arena 235520 ->
+        241664 KB. Run 257 (without the reclaim step): one 1 MB heap chunk went in during the race load, largest
+        range 72048 KB (580 KB short). Run 258: nothing inside it in the whole boot race; the texture cache is
+        flushed a few times (12.5 MB at the load, then 1-5 MB); frames per 10 s the same as run 257 (236 vs 243).
+      - **To check (user)**: the career path prologue -> free roam with this build (cfg: work/nfscvita258play.cfg =
+        play cfg + pool_log=30). Expect "soft reservation of 72628 KB ... ends" when the free roam loads.
+   259-260 (2026-11-19). **Sliding world textures when the camera view changes: fixed.**
+      - User: road and building textures slide when the camera view changes (seen before, gone, back again).
+        UG2 Vita lists a similar open item ("wrong texture for a while"), no fix published.
+      - New setting debug_texoffset: counts world commits with a nonzero cvTextureOffset. Run 259: 55-75 % of them,
+        values like (0.95, -0.027, -0.298, -0.296), changing with the view: IDI_WORLDNORMALMAP_FX, WORLDPRELIT_FX and
+        WORLDREFLECT_FX have no cvTextureOffset, FxEffect::floatsOf returned false without writing, and the world
+        family's uninitialized offset[4] (stack leftovers of the camera maths) was added to every UV. It came and
+        went with the code layout, which is why it looked fixed for a while.
+      - Fix: floatsOf zeros its output when the parameter is missing (covers the car family's reused buffer too).
+        Run 260: 0 of 2000 commits, apart from a few IDI_WORLD_FX t1 draws whose x offset cycles 0..1 (real
+        scrolling textures); camera switched three times, screenshots normal.
+      - auto_input knows the rear touch quadrants (rear_ul, rear_ur, rear_ll, rear_lr; rear_lr = camera).
+      - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
+        descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

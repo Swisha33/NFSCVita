@@ -36,7 +36,7 @@ const char* const Known[] =
     // Renderer.
     "alpha_draw_order", "skip_unused_alpha_test", "matrices_on_render_thread", "texture_cache_mb", "texture_async",
     "gxm_precomputed", "gxm_lists", "gxm_core2", "gxm_program_list", "cull_swap", "debug_frame_dump", "debug_frame_dump_from",
-    "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "bank_unlocked", "ug2_layout",
+    "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "pool_log", "debug_texoffset", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "bank_unlocked", "ug2_layout",
     // Native versions of guest code and their shadow compares.
     "bank_native", "shadow_bank", "audio_kernel_check", "audio_max_rate", "audio_paced_step", "audio_duty", "audio_unlocked", "audio_lock_free", "audio_thread_core", "sampler_mark_section", "cpu_clock",
     "stream_track_kb", "stream_subpool_kb", "audio_pool_kb", "coll_native", "shadow_coll", "cull_native", "cull_parallel", "shadow_cull",
