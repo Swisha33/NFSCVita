@@ -6,6 +6,9 @@ First public build of the Need for Speed Carbon (PC v1.4) port to the PS Vita. *
 races, free roam and the career start work, but it runs at about 20 fps and has known issues. Please report bugs
 with `ux0:data/NFSCVITA/nfscvita.log` attached.
 
+This port is vibe-coded: written almost entirely by an AI coding assistant (Claude Code), directed and play-tested
+on a real Vita by the maintainer.
+
 **You need your own copy of the PC game, version 1.4** (the `NFSC.exe` with SHA-256
 `baaaaec33873d4ba7e4dbae6a5212049ffdcf9679a35d865d7625b4189952fd3`). No game data is included: copy your game folder
 to `ux0:data/NFSCVITA/`. See the [README](../README.md#install).
