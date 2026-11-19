@@ -1009,7 +1009,13 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       Run 271 (boot race, ai_drive): views 1/3/4 hooked, "widescreen HUD on"; screenshots: car in proportion,
       round minimap and tacho at the screen corners. Run 272 (front end): title, career menu and garage centred
       4:3 with the right shape. Not ported: rain droplets (00722cb0), loading-screen pillarboxes, water reflection
-      size, movie placement. Headlights: no beam on the road in run 271's night shots (next).
+      size, movie placement. Headlights: no beam on the road in run 271's night shots.
+      Run 273 (gfx_detail=medium): still no beam. Cause: the world family draws IDI_WORLD_FX with the Vita preset
+      cworld programs (texture * vertex colour = PC technique 1, "lowlod"); the PC's headlights are per pixel in
+      techniques 0 (ps_3_0) and 2 (vs_2_0/ps_2_0, work/fx/world_t2p0_*.bin): vs passes the normal (oT1) and the
+      world position (oT2, c4..c7); ps: distance falloff (1 - d * 0.00425532)^2 * 3.5, cone pow(dot(dir, -c4), 3.7)
+      capped at 2.7, a facing term, then colour = texture * (vertex colour + c3.x * light). Next: a cworld variant
+      with that term (Cg, compiled on the Vita), costs per-pixel work on all world geometry.
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
