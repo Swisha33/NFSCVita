@@ -29,6 +29,12 @@ The widescreen values and patch sites in `src/nfsc/widescreen.cpp` and `tools/re
 (WIDESCREEN_PATCHES) follow ThirteenAG's NFSCarbon.WidescreenFix (github.com/ThirteenAG/WidescreenFixesPack),
 MIT License, as nfs-carbon-mac's core.nfsc applies it.
 
+## VitaBoost zcache and LZ4
+
+`src/third_party/vitaboost/vb_zcache.c` and `vb_zcache.h` from VitaBoost (github.com/Swisha33/VitaBoost), MIT
+License (`src/third_party/vitaboost/LICENSE.vitaboost`), with `lz4.c` / `lz4.h` from LZ4 by Yann Collet
+(github.com/lz4/lz4), BSD 2-Clause License (`src/third_party/vitaboost/LICENSE.lz4`).
+
 ## Capstone
 
 The recompiler disassembles with Capstone (BSD 3-Clause License), version pinned in

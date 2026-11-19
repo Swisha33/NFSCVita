@@ -45,6 +45,9 @@ std::atomic<uint32_t> s_held[HolderCount];
 std::atomic<uint32_t> s_uploads[UploadCount];
 std::atomic<uint32_t> s_cacheBytes{0};
 std::atomic<uint32_t> s_cacheLevels{0};
+std::atomic<uint32_t> s_zcacheBytes{0};
+std::atomic<uint32_t> s_zcacheEntries{0};
+std::atomic<uint32_t> s_zcacheCapacity{0};
 std::atomic<uint32_t> s_audio[AudioCount];
 
 // Hitch log sums (Totals), counted while the hitch log is on.
@@ -282,6 +285,18 @@ void logUploads()
             unsigned(s_cacheLevels.load(std::memory_order_relaxed)), unsigned(u[UploadRenderWaits]),
             double(u[UploadRenderWaitUs]) / 1000.0, unsigned(u[UploadGameWaits]), double(u[UploadGameWaitUs]) / 1000.0,
             unsigned(u[UploadGuestBlocks]), double(u[UploadGuestBlockUs]) / 1000.0);
+    // Only with texture_zcache_mb set: a separate line keeps the one above unchanged for tools/perfsum.py.
+    const uint32_t capacity = s_zcacheCapacity.load(std::memory_order_relaxed);
+    if (capacity)
+    {
+        logInfo("perf: zcache stores %u/%u %.1f MB -> %.1f MB, %.1f ms | hits %u %.1f MB %.1f ms | %.1f of %.1f MB "
+                "in %u entries",
+                unsigned(u[UploadZcacheStores]), unsigned(u[UploadZcachePuts]), double(u[UploadZcacheRawBytes]) * mb,
+                double(u[UploadZcacheCompBytes]) * mb, double(u[UploadZcacheCompressUs]) / 1000.0,
+                unsigned(u[UploadZcacheHits]), double(u[UploadZcacheHitBytes]) * mb,
+                double(u[UploadZcacheHitUs]) / 1000.0, double(s_zcacheBytes.load(std::memory_order_relaxed)) * mb,
+                double(capacity) * mb, unsigned(s_zcacheEntries.load(std::memory_order_relaxed)));
+    }
 }
 
 // Fourth log line, per interval: execution lock hold time by thread (ms per frame, holds per second, longest hold)
@@ -632,6 +647,13 @@ void logLockedTargets(uint32_t elapsed, uint32_t frames)
     if (const uint32_t overflow = s_lockedTargetOverflow.exchange(0, std::memory_order_relaxed))
         line.append(" | %u not counted", unsigned(overflow));
     logInfo("%s", line.text);
+}
+
+void uploadZcache(uint32_t bytes, uint32_t entries, uint32_t capacity)
+{
+    s_zcacheBytes.store(bytes, std::memory_order_relaxed);
+    s_zcacheEntries.store(entries, std::memory_order_relaxed);
+    s_zcacheCapacity.store(capacity, std::memory_order_relaxed);
 }
 
 void uploadCache(uint32_t bytes, uint32_t levels)
