@@ -61,6 +61,14 @@ enum Upload
     UploadGameWaitUs,
     UploadGuestBlocks,      // guest memory blocks created (MemMap), any caller
     UploadGuestBlockUs,
+    UploadZcachePuts,       // dropped kept copies offered to the compressed cache (texture_zcache_mb)
+    UploadZcacheStores,     // of those, stored (compressed well enough)
+    UploadZcacheRawBytes,   // uncompressed bytes of the stores
+    UploadZcacheCompBytes,  // compressed bytes of the stores
+    UploadZcacheCompressUs, // compression time, stored or not
+    UploadZcacheHits,       // locks served from the compressed cache instead of a read-back
+    UploadZcacheHitBytes,
+    UploadZcacheHitUs,      // decompression time
     UploadCount
 };
 
@@ -278,6 +286,8 @@ void audioLocked(const char* reason, uint32_t address);
 void lockedTarget(uint32_t address, uint32_t waitUs, uint32_t microseconds);
 // Game thread: kept linear texture copies at the moment.
 void uploadCache(uint32_t bytes, uint32_t levels);
+// Compressed texture cache (texture_zcache_mb) at the moment: compressed bytes held, entries, capacity.
+void uploadZcache(uint32_t bytes, uint32_t entries, uint32_t capacity);
 // Render thread, after each game frame it queued, with the timing or hitch log on or a frame observer set: frame is
 // the render::Frame index (0 for a layer present), renderUs and queueUs its render thread and display queue times
 // (measured when timed()). Calls the observer, queues a slow present for the hitch log and, with the timing log on,
