@@ -1,5 +1,19 @@
 # Release notes
 
+## v0.1.3 (pre-release)
+
+No more long freeze at the end of a race, and new artwork. Install the new `NFSCVita.vpk` over the old one; your game
+files and saves stay.
+
+### Fixed
+- **The game froze for 20 seconds to over 2 minutes** (sound kept playing) when a race ended or a big track section
+  was dropped. The game's chunk unloader searched the whole section again for every 64 pieces it removed; that took
+  no time on a PC but minutes on the Vita. A native version does it in one pass. `fast_chunk_unload=off` runs the
+  game's own code (for comparison).
+
+### New
+- **Icon and LiveArea artwork** by Reddit user u/Either-Version-9577 (also in the updated v0.1.2 VPK).
+
 ## v0.1.2 (pre-release)
 
 Widescreen and headlights. Install the new `NFSCVita.vpk` over the old one; your game files and saves stay.

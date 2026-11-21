@@ -26,7 +26,7 @@
 
 </div>
 
-> **Version 0.1.2, early pre-release.** Races, free roam and the career start (through the prologue into the free roam) work, but the game runs at about
+> **Version 0.1.3, early pre-release.** Races, free roam and the career start (through the prologue into the free roam) work, but the game runs at about
 > 20 fps (target: 30) and there are known issues. Expect bugs; save often.
 
 > **Vibe-coded.** This port was written almost entirely by an AI coding assistant
