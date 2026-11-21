@@ -16,8 +16,11 @@ namespace win32
 // Guest heap, thread stacks and shim buffers: the free user memory at startup less s_reserveMemory (graphics
 // heaps and pools, host thread stacks, system libraries allocated later), between s_minMemory and s_maxMemory.
 static const x86::reg32 s_minMemory = 96*1024*1024;
-static const x86::reg32 s_maxMemory = 236*1024*1024;
-static const x86::reg32 s_reserveMemory = 48*1024*1024;   // 64 MB before the vertex/index heap moved to phycont memory
+// 236 MB until v0.1.3; +10 MB for the car pool (stream_subpool_kb, via s_reserveMemory): runs 295-299 had 14-20 MB
+// of user memory unused outside the arena, and the graphics heaps overflow into CDRAM.
+static const x86::reg32 s_maxMemory = 246*1024*1024;
+// 64 MB before the vertex/index heap moved to phycont memory, 48 MB until v0.1.3 (10 MB went to the car pool).
+static const x86::reg32 s_reserveMemory = 38*1024*1024;
 // End of the highest image section (the generated layout), page-aligned.
 static const x86::reg32 s_sectionLimit = (game::layout::imageEnd + 4095) & ~4095u;
 // One byte per 4 KB block of the simulated memory, page-aligned.
@@ -122,6 +125,7 @@ static x86::reg32 s_softEnd = 0;
 static uint32_t s_softSaved[s_freeWordCount];
 static x86::reg32 s_softIntrusions = 0;     // fallback placements inside the range, and their blocks
 static x86::reg32 s_softIntrusionBlocks = 0;
+static x86::reg32 s_softEndAt = 0;          // a block of this many blocks ends it; 0: half the range
 
 // First block from b on whose free bit equals free, or limit.
 static x86::reg32 nextBlock(x86::reg32 b, x86::reg32 limit, bool free)
@@ -250,7 +254,11 @@ bool MemMap::place(x86::reg32 size, Placement placement)
         s_lock->lock();
         const uint32_t searchStart = searchTimed ? pf::perf::now() : 0;
         const x86::reg32 softCount = s_softEnd - s_softBegin;
-        const bool mask = softCount && m_blockCount < softCount / 2 && !intrude;
+        // A released range ends with any block of half its size or more; one reserved from the start
+        // (reserveTop) only with a block that fits it (the 82.8 MB streaming pool at boot ended it: run 297).
+        const bool ends = s_softEndAt ? m_blockCount >= s_softEndAt && m_blockCount <= softCount
+                                      : m_blockCount >= softCount / 2;
+        const bool mask = softCount && !ends && !intrude;
         if (mask)
         {
             // Search with the reserved range marked used; the free bits and the search hints come back after.
@@ -271,13 +279,13 @@ bool MemMap::place(x86::reg32 size, Placement placement)
             searchUs += pf::perf::now() - searchStart;
         if (m_block != x86::reg32(-1))
         {
-            if (softCount && m_blockCount >= softCount / 2)
+            if (softCount && ends)
             {
                 pf::logInfo("memory: soft reservation of %u KB at 0x%08x ends, block of %u KB at 0x%08x (%u blocks, "
                             "%u KB placed inside it meanwhile)", softCount * 4, s_addressOffset + s_softBegin * 4096,
                             m_blockCount * 4, s_addressOffset + m_block * 4096, s_softIntrusions,
                             s_softIntrusionBlocks * 4);
-                s_softBegin = s_softEnd = 0;
+                s_softBegin = s_softEnd = s_softEndAt = 0;
             }
             else if (softCount && m_block < s_softEnd && m_block + m_blockCount > s_softBegin)
             {
@@ -326,7 +334,7 @@ MemMap::~MemMap()
     {
         s_softBegin = m_block;
         s_softEnd = m_block + m_blockCount;
-        s_softIntrusions = s_softIntrusionBlocks = 0;
+        s_softIntrusions = s_softIntrusionBlocks = s_softEndAt = 0;
         pf::logInfo("memory: soft reservation of %u KB at 0x%08x", m_blockCount * 4, getBlockStart());
     }
     if (m_block < s_lowFree)
@@ -548,6 +556,26 @@ void MemMap::fillDebugGraph(x86::reg32* graph)
         graph[b/blocksPerPixel + 640*2] = r|g;
     }
     s_lock->unlock();
+}
+
+void MemMap::reserveTop(x86::reg32 size)
+{
+    // 64 KB more than asked for: the heap adds its own header to the block.
+    const x86::reg32 need = (size + 4095) / 4096, count = need + 16;
+    s_lock->lock();
+    if (count < s_blockCount && nextBlock(s_blockCount - count, s_blockCount, false) == s_blockCount)
+    {
+        s_softBegin = s_blockCount - count;
+        s_softEnd = s_blockCount;
+        s_softEndAt = need;
+        s_softIntrusions = s_softIntrusionBlocks = 0;
+    }
+    s_lock->unlock();
+    if (s_softEndAt == need)
+        pf::logInfo("memory: soft reservation of %u KB at the top of the arena (0x%08x) from the start",
+                    count * 4, s_addressOffset + s_softBegin * 4096);
+    else
+        pf::logError("memory: the top %u KB of the arena are not free; no reservation", count * 4);
 }
 
 }

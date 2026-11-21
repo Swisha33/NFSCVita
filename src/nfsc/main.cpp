@@ -426,7 +426,11 @@ int main(int, char**)
         });
         // The city (L5RA.BUN) also has a permanent section, number 2500, of 74.4 MB that 0079ebf4 takes from the
         // main heap, so on the Vita the pool has to shrink by about that much: 139 MB (PC) -> ~37 MB.
-        const int subPoolKb = pf::Config::getInt("stream_subpool_kb", 24000);
+        // 24000 KB until v0.1.3: a quick race with top-tier cars (Lamborghini) loads ~10 MB per car and needed
+        // more than 36 MB (run 299: 33.7 MB taken, still loading); with too little the car loader 0xb77018 waits
+        // for room forever and the race never starts (runs 294-299, issue #1). The extra 22 MB: 10 MB more arena
+        // (memmap.cpp), the rest from the reclaimable buffer and texture copies.
+        const int subPoolKb = pf::Config::getInt("stream_subpool_kb", 46000);
         app.getMemory<x86::reg32>(0x00a62c48) = x86::reg32(subPoolKb);
         pf::logInfo("memory: streaming sub-pool [0xa62c48] %d KB (PC: 65000)", subPoolKb);
         // Track part of that pool: 0x445c000 / 0x441c000 in the PC code (006b6ef2, 00699a68), patched by
@@ -441,6 +445,12 @@ int main(int, char**)
         // Track section buffers: generate.py PATCHES turn the streamer's oversized-section allocation into malloc
         // and its frees into free; free passes the game allocator's own blocks on to bFree (00476d70).
         win32::msvcr71::setForeignFree(0x00476d70);
+        // The city section (74,368,384 bytes) needs one free range of that size. Before its first load the arena
+        // fills from both ends and splits up: run 296 (car pool 40 MB, quick race from the menu) had 88.7 MB free
+        // but no range over 68.5 MB. Reserve the top of the arena for it from the start (memmap.cpp soft
+        // reservation; other blocks go there only when nothing else fits). Setting city_reserve=off turns it off.
+        if (pf::Config::getBool("city_reserve", true))
+            win32::MemMap::reserveTop(74368384);
         // Texture-pack chunk handlers: unlink pending pack data on unload (run 74 crash, texturepacks.cpp).
         nfsc::installTexturePackFix(app);
         // The EA audio thread runs in parallel with the game, as on PC (audio_thread.cpp).

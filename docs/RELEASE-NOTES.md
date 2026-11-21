@@ -1,5 +1,20 @@
 # Release notes
 
+## v0.1.4 (pre-release)
+
+Quick races with top-tier cars load again. Install the new `NFSCVita.vpk` over the old one; your game files and saves
+stay.
+
+### Fixed
+- **Quick race (and other races) with top-tier cars such as the Lamborghinis froze while loading**
+  ([#1](https://github.com/Swisha33/NFSCVita/issues/1)). The game's car memory was cut to 24 MB to make room for the
+  city; a race full of exotic cars needs over 33 MB. It is now 46 MB (10 MB more memory for the game overall), and
+  the city's 74 MB track section has its memory range kept free from the start, so both fit.
+
+### Known issue
+- A quick race can still freeze while loading if you pick a **teammate** and wait until **his car has finished
+  loading** in the menu before starting. Start the race (X) before his car appears to avoid it. Being worked on.
+
 ## v0.1.3 (pre-release)
 
 No more long freeze at the end of a race, and new artwork. Install the new `NFSCVita.vpk` over the old one; your game

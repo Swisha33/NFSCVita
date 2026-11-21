@@ -1041,6 +1041,23 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       (~2 header reads per chunk). Runs 291-293 (400 s each): no stall, no crash, ~7900 frames (before: ~3500 by
       then); the longest frames are the first load's, as before. Also new: the LiveArea logo layout
       (template_logo.xml.in).
+   294-308 (2026-11-21/22). **Quick race with top-tier cars froze at the load (issue #1).** Main thread in the
+      race-start callback 006bc100 -> 007e4b30 (car loader 0xb77018), waiting `while [0xb7702c] call 006b68d0`.
+      (1) The car pool (stream_subpool_kb, 24000 KB; PC 65000) is too small: run 299 (36 MB) 33.7 MB taken,
+      still loading. 46000 KB now; s_reserveMemory 48 -> 38 MB (arena 236 -> 246 MB; user memory free after the
+      arena 20 MB at boot, 4 MB at a race load; GPU heaps overflow to CDRAM). A 40 MB pool alone broke the city
+      section (run 296: 88.7 MB free, largest 68.5 MB): MemMap::reserveTop keeps the top 72.7 MB free from boot
+      (city_reserve=off), ended only by a block that fits it (the 82.8 MB streaming pool ended a plain one: run
+      297). Run 305: Lamborghini quick race and free roam load; run 308 (AI race, 400 s): 18.5 fps, no stall.
+      (2) Still open: the freeze returns when the teammate's car has finished loading in the quick race menu
+      before X (runs 302-307; X earlier: loads). Watches (debug_watch) at the freeze: [0xb7702c] 1 (loader busy)
+      since the teammate pick, preview state machine 0xb76860 ([+0x34], 007dba00) back to 0, callback queue
+      (0xa99358 count 0xa995dc, deferred 0xa992d8 count 0xa995e4, 16 slots) empty, loader [+0x1c] 6 requested,
+      [+0x20] 0 loaded, [+0xc28] -1. Last read: murcielago/geometry.bin 11280 bytes at 1056768. Ruled out: the
+      native chunk unloader (fast_chunk_unload=off froze too), pool room (car pool 12 MB free). Leads: the
+      resource-file completion 0055fb41 skips the loaded callback when [ebx+3] is set; 007d7440 (preview) queues
+      007e6ef0 -> 007e6e00 (waits for 0xb76860 state 0/2, then 007e4bb0 starts the next car load).
+      New: file_log=on logs every open and read.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

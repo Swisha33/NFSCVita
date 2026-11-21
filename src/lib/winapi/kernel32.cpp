@@ -237,6 +237,9 @@ HANDLE CreateFileA(WinApplication* app, x86::CPU& cpu,
     win32::File* file = new win32::File(lpFileName, dwDesiredAccess, dwFlagsAndAttributes, dwCreationDisposition);
     if (*file)
     {
+        static const bool s_fileLog = pf::Config::getBool("file_log", false);
+        if (s_fileLog)
+            pf::logInfo("CreateFileA \"%s\" from 0x%08x", lpFileName, callerAddress(app, cpu));
         setLastError(app, cpu, error::Success);
         return app->allocateResource(file);
     }

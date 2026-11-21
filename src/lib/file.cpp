@@ -499,7 +499,9 @@ x86::reg32 File::read(void* buffer, x86::reg32 max, x86::reg32* totalRead)
     const off_t offset = m_readFilter ? lseek(m_file, 0, SEEK_CUR) : 0;
     // Big reads are named in the log before they start (runs 106-123 froze in file I/O: the Vita went idle,
     // fixed by sceKernelPowerTick in the watchdog).
-    if (max >= 4 * 1024 * 1024)
+    // Setting file_log=on (diagnostic): every read, to see what a loader waits for.
+    static const bool s_fileLog = pf::Config::getBool("file_log", false);
+    if (max >= 4 * 1024 * 1024 || s_fileLog)
         pf::logInfo("file %s: reading %u bytes at %ld", m_filename.c_str(), unsigned(max), long(m_position));
     *totalRead = x86::reg32(::read(m_file, buffer, max));
     // A read cut short by the system (the game suspended with the PS button while the read waited, the memory card

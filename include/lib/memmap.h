@@ -56,6 +56,10 @@ public:
     static void setReclaim(Reclaim reclaim);
     // Up to 4 reports.
     static void addReport(Report report);
+    // Keeps a range of size bytes at the top of the arena free for one big block from the start (the soft
+    // reservation, see memmap.cpp): smaller blocks go elsewhere while anything else fits, and only a request of
+    // at least size bytes ends it.
+    static void reserveTop(x86::reg32 size);
     // Logs the free ranges, the live blocks per kind, the largest blocks and the added reports.
     static void report(x86::reg32 requested);
 
