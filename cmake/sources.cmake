@@ -107,6 +107,7 @@ set(NFSU_GAME_PORT_SOURCES
   src/nfsc/audio_kernels.cpp
   src/nfsc/audio_thread.cpp
   src/nfsc/bankcode.cpp
+  src/nfsc/chunk_unload.cpp
   src/nfsc/native_math.cpp
   src/nfsc/pad.cpp
   src/nfsc/texturepacks.cpp

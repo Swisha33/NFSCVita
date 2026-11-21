@@ -1024,6 +1024,23 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       Run 278: beam on the road ahead of the car, 19-20 fps as before (timing_log on).
       - Seen in runs 254/256/257: at the end of the 1-lap boot race (~130 s) 13-40 s without frames (the
         descriptor limit is reached at the same time). Old? Check before blaming new changes.
+   279-287 (2026-11-21). **The long freeze at the end of the boot race: the chunk unloader 006a83a0.**
+      PR #3 (texture_zcache_mb, LZ4 store of dropped kept texture levels): 0 hits in every run (one texture
+      read-back per race, 19 ms); 18.4 vs 20.5 fps in 280/281. Not merged. The user saw a freeze of 130 s in run
+      281 (no zcache) after the bench stopped reading; 282 (off) 28 s, 283 (on) 27-46 s, 284 over 103 s, 285 none:
+      both builds, always around frame 2530, main thread holding the execution lock, guest stack only the main
+      loop's SEH frame (handler 009a5efd = main loop 006b7930; the "code addresses" are SEH handlers, not returns).
+      The stall watchdog now sets sampler mark 1 while stalled (`samples.py --mark 1`): run 286's stalled 23 s are
+      93 % in sub_6a83a0's own loop. 006a83a0 (cdecl; start, size) unloads a block's chunks last to first, but
+      chunks link only forward: it walks from the start, rings the last 64, unloads them, and walks again up to
+      the lowest one: ~n*n/128 header reads, each a cache miss in a section of several MB. Native version
+      src/nfsc/chunk_unload.cpp (NATIVE_OVERRIDES): the same calls in the same order; setting
+      fast_chunk_unload=off runs the translated body. Run 288 (first version, a std::vector of all chunks):
+      std::bad_alloc at the unload (newlib heap 3.4 MB free). Now no heap: checkpoints every stride-th chunk
+      (4096 slots, stride doubles when full), then each segment re-read into a fixed buffer and unloaded backwards
+      (~2 header reads per chunk). Runs 291-293 (400 s each): no stall, no crash, ~7900 frames (before: ~3500 by
+      then); the longest frames are the first load's, as before. Also new: the LiveArea logo layout
+      (template_logo.xml.in).
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

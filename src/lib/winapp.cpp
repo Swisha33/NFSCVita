@@ -22,6 +22,7 @@
 #include <platform/config.h>
 #include <platform/log.h>
 #include <platform/perf.h>
+#include <platform/sampler.h>
 #include <platform/sync.h>
 #include <platform/time.h>
 #include <atomic>
@@ -227,13 +228,17 @@ static int watchdogRun(void* argument)
         if (idle < StallUs)
         {
             if (stalled)
+            {
                 pf::logInfo("stall: frames again");
+                pf::sampler::mark(0);
+            }
             stalled = false;
             continue;
         }
         if (stalled)
             continue;
         stalled = true;
+        pf::sampler::mark(1);   // sampler=on: `samples.py --mark 1` counts only the stalled time
         const x86::CPU* holder = s_holderCpu.load(std::memory_order_relaxed);
         pf::logInfo("stall: no frame for %u s, execution lock %s", unsigned(idle / 1000000),
                     s_lockHeld.load(std::memory_order_relaxed) ? "held" : "free");
