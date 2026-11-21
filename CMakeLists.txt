@@ -183,13 +183,20 @@ vita_create_self(NFSCVita.self NFSCVita.elf UNSAFE)
 # ATTRIBUTE2=12: extended memory budget for the guest arena.
 set(VITA_MKSFOEX_FLAGS "-d ATTRIBUTE2=12")
 # Icon and LiveArea images made from the user's game files (tools/vita/livearea_art.py, into sce_sys/game/, never
-# committed) replace the plain defaults; they use a gate with a 280x158 startup image (template_gate.xml.in).
+# committed) replace the plain defaults. A 280x158 startup image (what livearea_art.py makes) goes in a gate
+# (template_gate.xml.in); a 500x186 logo goes in the LiveArea frame (template_logo.xml.in).
 set(NFSC_ART_DIR "${CMAKE_SOURCE_DIR}/sce_sys")
 set(NFSC_TEMPLATE_IN "${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template.xml.in")
 if(NOT NFSC_PLAIN_ART AND EXISTS "${NFSC_ART_DIR}/game/icon0.png" AND EXISTS "${NFSC_ART_DIR}/game/livearea/contents/bg.png"
    AND EXISTS "${NFSC_ART_DIR}/game/livearea/contents/startup.png")
   set(NFSC_ART_DIR "${NFSC_ART_DIR}/game")
-  set(NFSC_TEMPLATE_IN "${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template_gate.xml.in")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NFSC_ART_DIR}/livearea/contents/startup.png")
+  file(READ "${NFSC_ART_DIR}/livearea/contents/startup.png" NFSC_STARTUP_WIDTH OFFSET 16 LIMIT 4 HEX)
+  if(NFSC_STARTUP_WIDTH STREQUAL "000001f4")
+    set(NFSC_TEMPLATE_IN "${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template_logo.xml.in")
+  else()
+    set(NFSC_TEMPLATE_IN "${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template_gate.xml.in")
+  endif()
 endif()
 message(STATUS "Icon and LiveArea images: ${NFSC_ART_DIR}")
 configure_file(

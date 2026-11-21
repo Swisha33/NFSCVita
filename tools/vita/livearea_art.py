@@ -247,6 +247,8 @@ def copy_images(source, out):
         if not os.path.isfile(path):
             path = os.path.join(source, os.path.basename(name))
         problem = check_image(path, width, height)
+        if problem and name.endswith('startup.png') and not check_image(path, 500, 186):
+            problem = None      # a 500x186 logo for the LiveArea frame (template_logo.xml.in)
         if problem:
             sys.exit('%s %s.' % (os.path.join(source, os.path.basename(name)), problem))
         os.makedirs(os.path.dirname(os.path.join(out, name)), exist_ok=True)
