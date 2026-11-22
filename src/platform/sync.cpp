@@ -22,7 +22,8 @@ SceUInt timeoutUs(uint32_t milliseconds)
 // True when a wait got the object, false on timeout; fatal on any other error.
 bool waitResult(int result, const char* function)
 {
-    if (result == int(SCE_KERNEL_ERROR_WAIT_TIMEOUT))
+    // THREAD_SUSPENDED: the sampler interrupted the wait; a timed wait reports it as a timeout.
+    if (result == int(SCE_KERNEL_ERROR_WAIT_TIMEOUT) || result == int(SCE_KERNEL_ERROR_THREAD_SUSPENDED))
         return false;
     if (result < 0)
         fatal("%s failed: 0x%08x", function, result);
@@ -49,7 +50,11 @@ Mutex::~Mutex()
 
 void Mutex::lock()
 {
-    int result = sceKernelLockMutex(m_id, 1, nullptr);
+    // A wait the sampler interrupts (sceKernelSuspendThread) returns THREAD_SUSPENDED without the lock: wait again.
+    int result;
+    do
+        result = sceKernelLockMutex(m_id, 1, nullptr);
+    while (result == int(SCE_KERNEL_ERROR_THREAD_SUSPENDED));
     if (result < 0)
         logError("sceKernelLockMutex(%s) failed: 0x%08x", m_name, result);
 }
@@ -89,7 +94,12 @@ LwMutex::~LwMutex()
 
 void LwMutex::lock()
 {
-    const int result = sceKernelLockLwMutex(lwWork(m_work), 1, nullptr);
+    // Run 321: the sampler's suspension made this fail (0x8002802d THREAD_SUSPENDED) inside EA's sound lock; the
+    // caller went on without it, the unlock failed (NOT_OWNED) and the game froze. Wait again instead.
+    int result;
+    do
+        result = sceKernelLockLwMutex(lwWork(m_work), 1, nullptr);
+    while (result == int(SCE_KERNEL_ERROR_THREAD_SUSPENDED));
     if (result < 0)
         logError("sceKernelLockLwMutex(%s) failed: 0x%08x", m_name, result);
 }
@@ -153,7 +163,9 @@ Semaphore::~Semaphore()
 
 void Semaphore::wait()
 {
-    waitResult(sceKernelWaitSema(m_id, 1, nullptr), "sceKernelWaitSema");
+    while (!waitResult(sceKernelWaitSema(m_id, 1, nullptr), "sceKernelWaitSema"))
+    {
+    }
 }
 
 bool Semaphore::waitFor(uint32_t milliseconds)
