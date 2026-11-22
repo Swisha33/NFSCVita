@@ -66,11 +66,22 @@ cg_fnclex = cg_nop
 
 # ---- arithmetic -----------------------------------------------------------------------------------------------
 
+def zero_idiom(ctx, dst, src):
+    """xor/sub/sbb r, r: r is not read (native overrides excepted)."""
+    program = ctx.fn.program
+    return (program is not None and program.zero_idioms and ctx.fn.entry_address not in program.native_overrides
+            and dst.type == X.X86_OP_REG and src.type == X.X86_OP_REG and dst.reg == src.reg)
+
+
 def _binary(ctx, dst, src, kind, op, write=True):
     bits = dst.size * 8
     t = T(bits)
-    setup, cur, writer = ctx.bind(dst)
-    lines = setup + ['const %s a = %s;' % (t, cur), 'const %s b = %s;' % (t, ctx.sval(src, bits))]
+    if write and op in ('^', '-') and zero_idiom(ctx, dst, src):
+        setup, cur, writer = [], '0', lambda v: ctx.put(dst, v)
+        lines = ['const %s a = 0;' % t, 'const %s b = 0;' % t]
+    else:
+        setup, cur, writer = ctx.bind(dst)
+        lines = setup + ['const %s a = %s;' % (t, cur), 'const %s b = %s;' % (t, ctx.sval(src, bits))]
     if kind in ('add', 'sub'):
         lines.append('const %s r = %s(a %s b);' % (t, t, op))
         lines += ctx.set_flags({}, kind=kind, bits=bits, operands={'a': 'a', 'b': 'b'})
@@ -119,9 +130,14 @@ def cg_test(ctx, dst, src):
 def _carry(ctx, dst, src, subtract):
     bits = dst.size * 8
     t = T(bits)
-    setup, cur, writer = ctx.bind(dst)
     op = '-' if subtract else '+'
-    lines = setup + ['const %s a = %s;' % (t, cur), 'const %s b = %s;' % (t, ctx.sval(src, bits)),
+    if subtract and zero_idiom(ctx, dst, src):
+        setup, writer = [], lambda v: ctx.put(dst, v)
+        a = b = '0'
+    else:
+        setup, a, writer = ctx.bind(dst)
+        b = ctx.sval(src, bits)
+    lines = setup + ['const %s a = %s;' % (t, a), 'const %s b = %s;' % (t, b),
                      'const bool c = %s;' % ctx.flag('cf'),
                      'const %s r = %s(a %s b %s %s(c));' % (t, t, op, op, t)]
     sign = lambda e: '(%s(%s(%s)) < 0)' % (S(bits), t, e)
@@ -582,14 +598,24 @@ def stack_slot(ins):
 
 def cg_push(ctx, value):
     bits = value.size * 8
+    slot = ctx.slot(('push',))
+    if slot is not None:
+        store = ctx.slot_set(slot, 's', 'v', 'int')
+    else:
+        store = ctx.store(bits, 's', 'v', ctx.stack_access(('push',)))
     return block(['const %s v = %s;' % (T(bits), ctx.val(value)),
                   'const x86::reg32 s = %s - %d;' % (ctx.reg('esp'), stack_slot(ctx.ins))] +
-                 ctx.store(bits, 's', 'v') + ctx.set_reg('esp', 's'))
+                 store + ctx.set_reg('esp', 's'))
 
 
 def cg_pop(ctx, dst):
     bits = dst.size * 8
-    return block(['const %s v = %s;' % (T(bits), ctx.load(bits, ctx.reg('esp')))] +
+    slot = ctx.slot(('pop',))
+    if slot is not None:
+        value = ctx.slot_get(slot, ctx.reg('esp'), 'int')
+    else:
+        value = ctx.load(bits, ctx.reg('esp'), ctx.stack_access(('pop',)))
+    return block(['const %s v = %s;' % (T(bits), value)] +
                  ctx.set_reg('esp', '%s + %d' % (ctx.reg('esp'), stack_slot(ctx.ins))) + ctx.put(dst, 'v'))
 
 
@@ -622,7 +648,12 @@ def cg_enter(ctx, alloc, nesting):
 
 
 def cg_leave(ctx):
-    return block(['const x86::reg32 s = %s;' % ctx.reg('ebp')] + ctx.set_reg('ebp', ctx.load(32, 's')) +
+    slot = ctx.slot(('leave',))
+    if slot is not None:
+        value = ctx.slot_get(slot, ctx.reg('ebp'), 'int')
+    else:
+        value = ctx.load(32, 's', ctx.stack_access(('leave',)))
+    return block(['const x86::reg32 s = %s;' % ctx.reg('ebp')] + ctx.set_reg('ebp', value) +
                  ctx.set_reg('esp', 's + 4'))
 
 

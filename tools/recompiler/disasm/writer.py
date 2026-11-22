@@ -18,7 +18,7 @@ import re
 
 from . import emit
 
-# Bucket size in guest bytes: about 60 functions per file on average for Speed.exe.
+# Bucket size in guest bytes: about 60 functions per file on average for SPEED2.EXE.
 BUCKET = 0x3000
 
 PARAMETERS = '(win32::WinApplication* app, x86::CPU& cpu)'

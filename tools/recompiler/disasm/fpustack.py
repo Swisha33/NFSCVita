@@ -48,6 +48,24 @@ def effect(mnemonic):
     return 0
 
 
+def step(fn, i):
+    """Net x87 pushes of non-call instruction i (inline helpers included)."""
+    if fn.branch[i][0] == 'inline':
+        return INLINE_EFFECT[fn.program.inline_calls[fn.branch[i][1]]][0]
+    return effect(fn.instructions[i].mnemonic.split()[-1])
+
+
+def reads(fn, i):
+    """Registers instruction i of fn reads from the stack."""
+    if fn.branch[i][0] == 'inline':
+        return INLINE_EFFECT[fn.program.inline_calls[fn.branch[i][1]]][1]
+    return needs(fn.instructions[i])
+
+
+# Inline helpers: (net pushes, registers read).
+INLINE_EFFECT = {'ftol2': (-1, 1)}
+
+
 def is_x87(mnemonic):
     return mnemonic.startswith('f') and mnemonic not in ('fwait',) or mnemonic == 'wait'
 
@@ -115,7 +133,7 @@ def depth_sets(fn, deltas, sites, indirect_delta):
         elif kind == 'dyncall':
             delta = sites.get(i, indirect_delta)
         else:
-            delta = effect(fn.instructions[i].mnemonic.split()[-1])
+            delta = step(fn, i)
         after = set(None if v is None or delta is None or abs(v + delta) > 16 else v + delta for v in reach[i])
         for x in fn.exits[i]:
             if x.edge == 'call':
@@ -199,10 +217,10 @@ def reads_result(fn):
             mnemonic = ins.mnemonic.split()[-1]
             if fn.branch[k][0] != 'next' or mnemonic in RESET or fn.effects[k].boundary == 'trap':
                 break
-            if needs(ins) > pushed:
+            if reads(fn, k) > pushed:
                 found.add(i)
                 break
-            pushed += effect(mnemonic)
+            pushed += step(fn, k)
     fn.fpu_reads_result = found
     return found
 
@@ -228,7 +246,7 @@ def violations(fn, deltas, sites, indirect_delta):
         if fn.branch[j][0] == 'dyncall':
             if values != {0}:
                 bad.add(('call', j))
-        elif min(values) < needs(fn.instructions[j]):
+        elif min(values) < reads(fn, j):
             bad.add(('read', j))
     known = set(v for v in returns if v is not None)
     if len(known) > 1:
@@ -315,7 +333,7 @@ def walk(fn, deltas, sites, indirect_delta):
                 delta = sites.get(i, indirect_delta)
                 after = d + delta if delta is not None else None
             else:
-                after = d + effect(mnemonic)
+                after = d + step(fn, i)
         for x in fn.exits[i]:
             if x.edge == 'call':
                 continue
@@ -356,7 +374,7 @@ def walk(fn, deltas, sites, indirect_delta):
     uses = False
     for i in fn.reachable:
         mnemonic = fn.instructions[i].mnemonic.split()[-1]
-        if fn.branch[i][0] == 'skip' or not is_x87(mnemonic):
+        if fn.branch[i][0] == 'skip' or not (is_x87(mnemonic) or fn.branch[i][0] == 'inline'):
             continue
         uses = True
         if result.depth[i] is None:

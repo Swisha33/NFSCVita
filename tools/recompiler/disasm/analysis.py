@@ -17,6 +17,9 @@ from . import codegen, fpustack, stack
 
 
 FCOM = ('fcom', 'fcomp', 'fcompp', 'fucom', 'fucomp', 'fucompp', 'ftst')
+FUSE_FILLERS = ('mov', 'lea', 'movzx', 'movsx')     # may sit inside a fused compare (Function.is_filler)
+FUSE_GAP = 3                        # fillers allowed in each gap of a fused compare
+CONDITION_CODE_BITS = 0x4700        # C0, C1, C2 and C3 in the x87 status word
 JCC = set('j' + cc for cc in C.CC_ALIASES) | {'jcxz', 'jecxz', 'loop', 'loope', 'loopne'}
 REG_SHIFT = 8
 ALL_REG_STATE = C.ALL_REGS << REG_SHIFT
@@ -39,7 +42,7 @@ class Exit:
     __slots__ = ('edge', 'kind', 'target')
 
     def __init__(self, edge, kind, target=None):
-        self.edge = edge        # 'exit' (ret, tail, fall-off), 'taken' (jcc to a tail target), 'call'
+        self.edge = edge        # 'exit' (ret, tail, fall-off), 'taken' (jcc to a tail target), 'call', 'skip'
         self.kind = kind        # 'ret', 'tail', 'dyntail', 'call', 'dyncall'
         self.target = target    # entry address for 'tail' and 'call'
 
@@ -63,6 +66,7 @@ class Function:
         self.entry = self.index_of[self.entry_address]
         self.n = len(self.instructions)
         self.program = None
+        self.frame = None           # frames.Frame when stack slots live in locals
 
         self.branch = [None] * self.n
         self.succ = [[] for _ in range(self.n)]
@@ -75,6 +79,8 @@ class Function:
         self.fused = {}             # index of fcom / fnstsw / sahf -> index of the sahf of its triple
         self.live_in = None
         self.live_out = None
+        self.ax_in = None           # per instruction: the low 16 bits of eax may be read from its start on
+        self.ax_out = None          # per instruction: they may be read after it
         self._rd_cache = {}
         self.local_needed = set()   # (producer index, flag): the producer writes f_<flag>
         self.lazy_readers = set()   # producers with lazily served reads
@@ -131,7 +137,10 @@ class Function:
                 self.exits[i] = [Exit('exit', 'ret')]
             elif mnemonic == 'call':
                 op = ins.operands[0]
-                if op.type == X.X86_OP_IMM:
+                if op.type == X.X86_OP_IMM and op.imm in self.program.inline_calls:
+                    self.branch[i] = ('inline', op.imm)
+                    self.exits[i] = fall_off
+                elif op.type == X.X86_OP_IMM:
                     self.branch[i] = ('call', op.imm)
                     self.exits[i] = [Exit('call', 'call', op.imm)] + fall_off
                 else:
@@ -163,21 +172,49 @@ class Function:
         return ('dyntail',)
 
     def find_fused_compares(self):
-        """fcom*; fnstsw ax; sahf (or test ah, mask of C0, C2, C3) with no label inside: the flags come from the
-        compared values."""
+        """Fuses fcom*; fnstsw ax; sahf or test ah, fillers allowed between."""
         for i in range(self.n - 2):
-            a, b, c = self.instructions[i:i + 3]
-            if a.mnemonic not in FCOM or b.mnemonic not in ('fnstsw', 'fstsw'):
+            if self.instructions[i].mnemonic not in FCOM:
                 continue
-            if c.mnemonic != 'sahf' and self.ftest_mask(c) is None:
+            j = self.skip_fillers(i + 1)
+            k = None if j is None else self.skip_fillers(j + 1)
+            if k is None:
+                continue
+            b, c = self.instructions[j], self.instructions[k]
+            if b.mnemonic not in ('fnstsw', 'fstsw') or (c.mnemonic != 'sahf' and self.ftest_mask(c) is None):
                 continue
             if b.operands[0].type != X.X86_OP_REG or b.reg_name(b.operands[0].reg) != 'ax':
                 continue
-            if self.is_label(i + 1) or self.is_label(i + 2):
+            if any(self.is_label(m) for m in range(i + 1, k + 1)):
                 continue
-            if any(x.address in self.thread_segments or x.address in self.skip for x in (a, b, c)):
+            if any(self.instructions[m].address in self.thread_segments or self.instructions[m].address in self.skip
+                   for m in range(i, k + 1)):
                 continue
-            self.fused[i] = self.fused[i + 1] = self.fused[i + 2] = i + 2
+            self.fused[i] = self.fused[j] = self.fused[k] = k
+
+    def skip_fillers(self, i):
+        """First non-filler index from i within FUSE_GAP fillers, else None."""
+        for m in range(i, min(i + FUSE_GAP + 1, self.n)):
+            if not self.is_filler(self.instructions[m]):
+                return m
+        return None
+
+    @staticmethod
+    def is_filler(ins):
+        """A move leaving eax, the flags and the x87 state alone."""
+        if ins.mnemonic not in FUSE_FILLERS:
+            return False
+        for op in ins.operands:
+            if op.type == X.X86_OP_REG:
+                regs = (op.reg,)
+            elif op.type == X.X86_OP_MEM:
+                regs = (op.mem.base, op.mem.index)
+            else:
+                regs = ()
+            for r in regs:
+                if r and C.SUBREGS.get(ins.reg_name(r), ('eax',))[0] == 'eax':
+                    return False
+        return True
 
     @staticmethod
     def ftest_mask(ins):
@@ -193,8 +230,17 @@ class Function:
     def is_call(self, i):
         return self.branch[i][0] in ('call', 'dyncall')
 
-    def is_fused_fnstsw(self, i):
-        return self.fused.get(i) is not None and self.instructions[i].mnemonic in ('fnstsw', 'fstsw')
+    def is_ax_fnstsw(self, i):
+        """A generated (not skipped) fnstsw ax."""
+        ins = self.instructions[i]
+        if ins.mnemonic not in ('fnstsw', 'fstsw') or self.branch[i][0] == 'skip':
+            return False
+        op = ins.operands[0]
+        return op.type == X.X86_OP_REG and ins.reg_name(op.reg) == 'ax'
+
+    def fnstsw_reads_fc(self, i):
+        """fnstsw ax whose condition codes are read later."""
+        return self.is_ax_fnstsw(i) and self.ax_out[i] and not self.masks_condition_codes(i)
 
     # ---- effects ------------------------------------------------------------------------------------------
     def record(self):
@@ -214,8 +260,8 @@ class Function:
                     self.unmodeled[i] |= C.FLAG_BIT[f]
             if self.program.abi_flags:
                 self.kill[i] |= self.unmodeled[i]
-            if self.is_fused_fnstsw(i) or self.masks_condition_codes(i):
-                self.use[i] &= ~C.FLAG_BIT['fc']    # fused: read only when eax is live (see liveness)
+            if self.is_ax_fnstsw(i):
+                self.use[i] &= ~C.FLAG_BIT['fc']    # read only when ax is read later (fnstsw_reads_fc)
         # A failed assertion traps: nothing runs after an instruction the generator cannot translate.
         for i in range(self.n):
             if self.effects[i].boundary == 'trap':
@@ -234,7 +280,7 @@ class Function:
                 stack.extend(self.succ[i])
 
     def masks_condition_codes(self, i):
-        """fnstsw ax directly followed by and eax/ax, imm clearing C0, C2 and C3."""
+        """fnstsw ax directly followed by and eax/ax, imm clearing C0-C3."""
         ins = self.instructions[i]
         if ins.mnemonic not in ('fnstsw', 'fstsw') or i + 1 >= self.n or self.is_label(i + 1):
             return False
@@ -244,7 +290,7 @@ class Function:
         nxt = self.instructions[i + 1]
         if nxt.mnemonic != 'and' or nxt.operands[0].type != X.X86_OP_REG or nxt.operands[1].type != X.X86_OP_IMM:
             return False
-        return nxt.reg_name(nxt.operands[0].reg) in ('eax', 'ax') and not (nxt.operands[1].imm & 0x4500)
+        return nxt.reg_name(nxt.operands[0].reg) in ('eax', 'ax') and not (nxt.operands[1].imm & CONDITION_CODE_BITS)
 
     def may_def_local(self):
         """State (flags, registers) this function may change, before its callees."""
@@ -359,13 +405,42 @@ class Function:
             return p.indirect_live_in
         raise AssertionError(x.kind)
 
+    def ax_liveness(self):
+        """Backward liveness of ax; writing all of ax ends it."""
+        n = self.n
+        eax = C.REG_BIT['eax']
+        ax_in = self.ax_in if self.ax_in else [False] * n
+        out = [False] * n
+        changed = True
+        while changed:
+            changed = False
+            for i in range(n - 1, -1, -1):
+                o = any(ax_in[s] for s in self.succ[i])
+                call_use = False
+                for x in self.exits[i]:
+                    used = bool((self.exit_use(x) >> REG_SHIFT) & eax)
+                    if x.edge == 'call':
+                        call_use |= used
+                    else:
+                        o |= used
+                e = self.effects[i]
+                uses = bool(e.reg_use & eax) or bool(e.reg_partial & eax and not e.ax_def)
+                kills = e.reg_def & eax or e.ax_def or (self.callee_must_def(i) >> REG_SHIFT) & eax
+                v = uses or call_use or (o and not kills)
+                out[i] = o
+                if v != ax_in[i]:
+                    ax_in[i] = v
+                    changed = True
+        self.ax_in = ax_in
+        self.ax_out = out
+
     def liveness(self):
         """Backward liveness of flags and registers; calls pass live state through, except the flags the callee may
         write and the registers it writes on every path."""
+        self.ax_liveness()
         n = self.n
         live_in = self.live_in if self.live_in else [0] * n
         out = [0] * n
-        eax = C.REG_BIT['eax'] << REG_SHIFT
         fc = C.FLAG_BIT['fc']
         changed = True
         while changed:
@@ -383,7 +458,7 @@ class Function:
                     else:
                         o |= self.exit_use(x)
                 use = self.use[i]
-                if (o & eax) and self.is_fused_fnstsw(i):
+                if self.fnstsw_reads_fc(i):
                     use |= fc
                 v = use | call_use | (o & ~self.kill[i] & ~clobber)
                 out[i] = o
@@ -395,7 +470,8 @@ class Function:
         return live_in[self.entry]
 
     def writes_ax(self, i):
-        return bool(self.live_out[i] & (C.REG_BIT['eax'] << REG_SHIFT))
+        """The ax written at i may be read later."""
+        return self.ax_out[i]
 
     def flag_live_out(self, i, f):
         return bool(self.live_out[i] & C.FLAG_BIT[f])
@@ -504,7 +580,14 @@ class Function:
         if x.edge == 'call':
             after = self.live_out[i]
             return (self.exit_use(x) | (after & self.callee_may_def(i))) & C.CPU_FLAG_MASK
-        return (self.exit_use(x) | self.indirect_return_use(x)) & C.CPU_FLAG_MASK
+        return (self.exit_use(x) | self.indirect_return_use(x)) & C.CPU_FLAG_MASK & ~self.from_callee(i, x)
+
+    def from_callee(self, i, x):
+        """State a skip edge x takes from the callee."""
+        return self.callee_may_def(i) if x.edge == 'skip' else 0
+
+    def exit_producers(self, i, x, f):
+        return {i} if self.from_callee(i, x) & C.FLAG_BIT[f] else self.reaching(i, f)
 
     def indirect_return_use(self, x):
         """Flags read at a return of a function an indirect jump may reach."""
@@ -531,9 +614,9 @@ class Function:
     def decide(self):
         fc = C.FLAG_BIT['fc']
         for i in range(self.n):
-            read = self.use[i] | (fc if self.is_fused_fnstsw(i) and self.writes_ax(i) else 0)
+            read = self.use[i] | (fc if self.fnstsw_reads_fc(i) else 0)
             for x in self.exits[i]:
-                read |= self.exit_use(x) | self.indirect_return_use(x)
+                read |= (self.exit_use(x) | self.indirect_return_use(x)) & ~self.from_callee(i, x)
             if read & fc:
                 self.fc_needed.update(q for q in self.reaching(i, 'fc') if not self.is_memory_producer(q, 'fc'))
         for i in range(self.n):
@@ -666,6 +749,8 @@ class Function:
         pushfd then checks all of them."""
         address = self.instructions[i].address
         dirty = sum(C.FLAG_BIT[f] for f in C.CPU_FLAGS if self.dirty(i, f))
+        if edge == 'skip':
+            dirty &= ~self.callee_may_def(i)
         lines = ['cpu.flagsUnknown = (cpu.flagsUnknown & ~0x%xu) | 0x%xu;' % (stored, dirty & ~stored)]
         if edge == 'flags':
             lines.append('RC_FLAG_AUDIT(cpu, 0x%xu, 0x%xu);' % (C.CPU_FLAG_MASK, address))
@@ -733,7 +818,7 @@ class Function:
             return None
         if self.is_call(i):
             return self.fpu_after_call(i)
-        return d + fpustack.effect(self.instructions[i].mnemonic.split()[-1])
+        return d + fpustack.step(self, i)
 
     def entry_loads(self):
         return [f for f in C.CPU_FLAGS if (self.ENTRY, f) in self.reloads]
@@ -759,8 +844,18 @@ class Program:
     def __init__(self, modules, thread_segments, skip_instructions, function_names, flags_preserved=(), not_code=(),
                  native_overrides=(), local_registers=True, memory_functions=(), local_x87=True, setjmp=None,
                  longjmp_jumps=None, fpu_check=False, fpu_deltas=None, preempt_loops=False, address_taken=None,
-                 abi_flags=False, jump_targets=None, flag_audit=False):
+                 abi_flags=False, jump_targets=None, flag_audit=False, zero_idioms=True, inline_calls=None,
+                 pure_natives=(), native_writes=False):
         self.functions = {}
+        self.inline_calls = dict(inline_calls or {})    # callee -> codegen.control.INLINE helper
+        self.pure_natives = set(pure_natives)           # natives that never set cpu.terminate
+        self.native_writes = native_writes              # natives write what their guest bodies always write
+        self.zero_idioms = zero_idioms     # xor/sub/sbb r, r do not read r
+        self.check_assumptions = False     # generated code logs where frames.py or fold_rdata facts fail
+        self.fold_rdata = False            # x87 loads from read-only sections are constants
+        self.rdata_written = set()         # .rdata addresses the port writes at run time: never folded
+        self.promote_bisect = False        # slots are locals only in functions the promote_lo/hi settings pick
+        self.check_poison = False          # promoted slots leave a poison pattern in guest memory
         # Backward jumps are preemption points (WinApplication::allowPreemption).
         self.preempt_loops = preempt_loops
         # Check the x87 depth after every call with a known result depth (diagnostic builds).
@@ -807,10 +902,12 @@ class Program:
         # overrides and setjmp, whose bodies the analysis does not see).
         self.reg_must = {}
         # Flags read by the callers of a function leaving through an indirect jump; the returns of the functions
-        # that jump reaches store them (jump_targets: site -> entries, else every address-taken function).
+        # that jump reaches store them (jump_targets: site -> entries, which also return them to those callers, else
+        # every address-taken function).
         self.jump_targets = dict(jump_targets or {})
         self.indirect_tail_flags = 0
         self.indirect_returners = set()
+        self.pure = set()           # no native, setjmp, indirect call or jump, thread segment or longjmp reachable
 
     def find_address_taken(self, modules):
         """Entries that may be called indirectly, for an image with relocations: module entry points and every entry
@@ -894,7 +991,7 @@ class Program:
     def compute_reg_must(self, fns):
         """Function.reg_must_def of every function, to the greatest fixed point (recursion assumes the registers
         written until a path proves otherwise). Registers a function restores before returning do not count."""
-        unknown = self.native_overrides | {self.setjmp}
+        unknown = ({self.setjmp} if self.native_writes else self.native_overrides | {self.setjmp})
         self.reg_must = dict((fn.entry_address, 0 if fn.entry_address in unknown else CALL_WRITTEN) for fn in fns)
         changed = True
         while changed:
@@ -923,6 +1020,20 @@ class Program:
         if fn.instructions[q].mnemonic in MEMORY_DEFS:
             return True
         return fn.writes_fc(q) if f == 'fc' else True
+
+    def add_skip_exits(self, fns):
+        """Exit edges after calls that return from the caller too."""
+        self.skip_problems = []     # (address, reason): uses of StackInfo.skips the generated code cannot follow
+        for fn in fns:
+            info = self.stack[fn.entry_address]
+            if info.skips and fn.entry_address in self.address_taken:
+                self.skip_problems.append((fn.entry_address, 'address taken'))
+            for i, k in sorted(info.skip_calls.items()):
+                skips = self.stack[fn.branch[i][1]].skips
+                if k != 0 or len(skips) != 1 or None in skips:
+                    self.skip_problems.append((fn.instructions[i].address, 'call'))
+                else:
+                    fn.exits[i].append(Exit('skip', 'ret'))
 
     def tail_closure(self, entries):
         """The functions and every function they reach by tail jumps."""
@@ -968,7 +1079,7 @@ class Program:
                         mask = 0
                         for f in C.FLAGS:
                             if extra & C.FLAG_BIT[f] and any(q != fn.ENTRY and not self.provided(fn, q, f)
-                                                             for q in fn.reaching(i, f)):
+                                                             for q in fn.exit_producers(i, x, f)):
                                 mask |= C.FLAG_BIT[f]
                         if mask:
                             out['indirect_returns'].append((fn.instructions[i].address, mask))
@@ -994,6 +1105,7 @@ class Program:
             fn.record()
         self.compute_may_def(fns)
         self.stack = stack.analyze(self, fns)
+        self.add_skip_exits(fns)
         fpu = fpustack.analyze(self, fns)
         self.fpu_deltas = dict((a, info.delta) for a, info in fpu.items())
         for fn in fns:
@@ -1050,6 +1162,9 @@ class Program:
                                 tail_flags |= flags
                                 site = fn.instructions[i].address
                                 tail_targets |= set(self.jump_targets.get(site, self.address_taken))
+                                for t in self.jump_targets.get(site, ()):
+                                    if t in ret_live:
+                                        ret_live[t] |= flags & self.result_mask(t)
             for a in self.address_taken:
                 ret_live[a] |= indirect_ret & self.result_mask(a)
             if indirect_live_in != self.indirect_live_in or ret_live != self.ret_live:
@@ -1064,6 +1179,34 @@ class Program:
             % (iteration, len(self.address_taken), state_names(self.indirect_live_in), state_names(indirect_ret)))
         for fn in fns:
             fn.decide()
+        self.compute_pure()
+
+    def compute_pure(self):
+        """Functions whose calls cannot set cpu.terminate on this thread."""
+        impure = (self.native_overrides - self.pure_natives) | {self.setjmp}
+        callees = {}
+        for a, fn in self.functions.items():
+            targets = set()
+            if a in self.pure_natives and a in self.native_overrides:
+                callees[a] = targets
+                continue
+            for i in fn.reachable:
+                if fn.instructions[i].address in fn.thread_segments or fn.instructions[i].address in self.longjmp_jumps:
+                    impure.add(a)
+                for x in fn.exits[i]:
+                    if x.kind in ('call', 'tail'):
+                        targets.add(x.target)
+                    elif x.kind in ('dyncall', 'dyntail'):
+                        impure.add(a)
+            callees[a] = targets
+        changed = True
+        while changed:
+            changed = False
+            for a, targets in callees.items():
+                if a not in impure and any(t in impure or t not in self.functions for t in targets):
+                    impure.add(a)
+                    changed = True
+        self.pure = set(self.functions) - impure
 
 
 def state_names(mask):

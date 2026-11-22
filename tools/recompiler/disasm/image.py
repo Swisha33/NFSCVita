@@ -6,6 +6,7 @@ there, so an indirect call through the table reaches the shim.
 """
 
 import hashlib
+import struct
 
 from . import pefile
 
@@ -55,7 +56,8 @@ class Import:
 
 
 class Image:
-    def __init__(self, path):
+    def __init__(self, path, relocation_section=None):
+        """relocation_section: the section holding relocation blocks the directory lost."""
         with open(path, 'rb') as f:
             self.file_bytes = f.read()
         self.sha256 = hashlib.sha256(self.file_bytes).hexdigest()
@@ -79,6 +81,8 @@ class Image:
                     self.relocations.add(self.base + entry.rva)
                 elif entry.type != 0:
                     raise AssertionError('relocation type %d at 0x%x' % (entry.type, self.base + entry.rva))
+        if not self.relocations and relocation_section is not None:
+            self.relocations = self.relocation_blocks(relocation_section)
         self.imports = []
         fake = FAKE_IMPORT_BASE
         for descriptor in pe.DIRECTORY_ENTRY_IMPORT:
@@ -97,6 +101,35 @@ class Image:
                 self.imports.append(Import(dll, name, imp.address, fake))
                 fake += 1
         self.code_sections = [s for s in self.sections if s.code]
+
+    def relocation_blocks(self, address):
+        """HIGHLOW sites of the IMAGE_BASE_RELOCATION chain starting a section."""
+        s = self.section_of(address)
+        if s is None or s.address != address:
+            raise AssertionError('no section starts at 0x%x' % address)
+        data = s.data
+        sites = set()
+        offset = 0
+        while offset + 8 <= len(data):
+            page, size = struct.unpack_from('<II', data, offset)
+            if not size:
+                break
+            if size < 8 or size % 4 or page % 0x1000 or page >= self.size_of_image or offset + size > len(data):
+                raise AssertionError('relocation block at 0x%x: page 0x%x, size %d' % (address + offset, page, size))
+            for k in range(offset + 8, offset + size, 2):
+                (entry,) = struct.unpack_from('<H', data, k)
+                if entry >> 12 == IMAGE_REL_BASED_HIGHLOW:
+                    sites.add(self.base + page + (entry & 0xfff))
+                elif entry >> 12:
+                    raise AssertionError('relocation type %d in the block at 0x%x' % (entry >> 12, address + offset))
+            offset += size
+        if any(data[offset:]):
+            raise AssertionError('bytes after the relocation chain at 0x%x' % (address + offset))
+        for site in sites:
+            value = self.dword(site)
+            if value is None or not self.base <= value < self.base + self.size_of_image:
+                raise AssertionError('relocated dword at 0x%x holds no image address' % site)
+        return sites
 
     def section_of(self, address):
         for s in self.sections:

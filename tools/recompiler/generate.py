@@ -29,7 +29,7 @@ import bootstrap  # noqa: E402
 bootstrap.ensure_capstone()
 import capstone  # noqa: E402
 from capstone import x86 as CX  # noqa: E402
-from disasm import analysis, codegen, discover, fpustack, image as pe_image, writer  # noqa: E402
+from disasm import analysis, codegen, discover, fpustack, frames, image as pe_image, writer  # noqa: E402
 import bankcode  # noqa: E402
 
 EXE_NAME = 'NFSC.exe'
@@ -314,6 +314,40 @@ def sync_output(stage, out_dir):
     print('generated %d files into %s (%d changed, %d removed)' % (len(names), out_dir, changed, removed))
 
 
+# .rdata the port writes at run time: --fold-rdata leaves these loads alone (widescreen.cpp ProtectedGameRefs,
+# main.cpp sim_hz).
+RDATA_WRITTEN = [0x009e8f8c, 0x009c778c, 0x009d5f3c, 0x009d0584, 0x009ec0a8, 0x009ebb6c, 0x009db360]
+
+
+def promote_stack_slots(program, promote, separate):
+    """--promote-stack-slots / --separate-stack (disasm/frames.py, from NFSUG2_VITA)."""
+    started = time.time()
+    analysis_ = frames.Analysis(program)
+    result = analysis_.run(promote, separate)
+    reasons = collections.Counter()
+    accesses = promoted = saves = slots = functions = loads = separated = 0
+    for a, f in result.items():
+        if f.reason:
+            reasons[f.reason.split(' 0x')[0]] += 1
+            continue
+        accesses += len(f.accesses)
+        separated += len(f.stack_sites)
+        if f.slots or f.stack_sites:
+            program.functions[a].frame = f
+        if f.slots:
+            functions += 1
+            slots += len(f.slots)
+            loads += sum(s.entry_load for s in f.slots.values())
+            promoted += len(f.sites)
+            saves += sum(1 for s in f.sites.values() if s.save)
+    print('stack slots: %d functions, %d slots (%d loaded at entry), %d of %d resolved stack accesses (%d register '
+          'saves); %d shared esp changes solved, %d conflicting; %d indirect calls settled by choice (%.0f s)'
+          % (functions, slots, loads, promoted, accesses, saves, len(analysis_.known), len(analysis_.conflicts),
+             sum(len(v) for v in analysis_.chosen.values()), time.time() - started))
+    print('stack slots: %d accesses marked as not aliasing other guest memory' % separated)
+    print('stack slots: functions left as they are: %s' % ', '.join('%s %d' % kv for kv in reasons.most_common()))
+
+
 def report(discovery, module, program):
     """Statistics and every place the generated code traps. Returns the number of problems: unsupported
     instructions in reachable code, SIMD outside the gated ranges and sites breaking the flag convention."""
@@ -409,6 +443,18 @@ def main():
                         help='check at run time that every flag read from cpu was stored there (logs the reader)')
     parser.add_argument('--fpu-check', action='store_true',
                         help='assert the x87 depth after every call whose depth is known (finds leaking callees)')
+    parser.add_argument('--promote-stack-slots', action='store_true',
+                        help='keep stack slots no other code can see in C++ locals (disasm/frames.py)')
+    parser.add_argument('--separate-stack', action='store_true',
+                        help='tell clang that frame accesses and pushes never alias other guest accesses')
+    parser.add_argument('--fold-rdata', action='store_true',
+                        help='loads from .rdata (read-only on the PC) become constants, except RDATA_WRITTEN')
+    parser.add_argument('--promote-bisect', action='store_true',
+                        help='keep slots in locals only in functions from promote_lo to promote_hi (settings file)')
+    parser.add_argument('--check-poison', action='store_true',
+                        help='with --check-assumptions: promoted slots write a poison pattern to guest memory instead')
+    parser.add_argument('--check-assumptions', action='store_true',
+                        help='log at run time where the facts behind the three options above fail')
     parser.add_argument('--bank-only', action='store_true',
                         help='only (re)write %s_bank.cpp, the audio bank routines (seconds, no regeneration)' % MODULE)
     args = parser.parse_args()
@@ -449,6 +495,13 @@ def main():
                                flag_audit=args.flag_audit)
     program.import_fpu_deltas = import_deltas
     program.analyze()
+    program.check_assumptions = args.check_assumptions
+    program.fold_rdata = args.fold_rdata
+    program.rdata_written = set(RDATA_WRITTEN)
+    program.promote_bisect = args.promote_bisect
+    program.check_poison = args.check_poison
+    if args.promote_stack_slots or args.separate_stack:
+        promote_stack_slots(program, args.promote_stack_slots, args.separate_stack)
     print('analysis done at %.0f s' % (time.time() - started))
     # Every direct call and tail call must reach a generated function.
     missing = sorted(set(x.target for fn in program.functions.values() for i in fn.reachable for x in fn.exits[i]

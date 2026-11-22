@@ -23,6 +23,7 @@ Recursive descent from verified entries; no linear sweep produces code.
 """
 
 import bisect
+import collections
 
 from capstone import x86 as X
 
@@ -124,6 +125,8 @@ class Discovery:
         self.no_return_slots = set(i.iat_address for i in image.imports if i.name in NO_RETURN_IMPORTS)
         self.declared_no_return = set(no_return)
         self.no_return = set(no_return)     # entries that never return
+        self.relocations = image.relocations    # when present, the only pointer candidates
+        self.referenced = set(image.dword(r) for r in self.relocations)    # addresses relocated dwords hold
         self.reset()
 
     def reset(self):
@@ -249,6 +252,9 @@ class Discovery:
             ins = function.get(s)
             if ins is not None and s + ins.size > address:
                 return None
+        if self.relocations and (address not in self.relocations
+                                 or address != table_start and address in self.referenced):
+            return None
         value = self.image.dword(address)
         if value is None or not self.image.is_code(value) or self.instruction(value) is None:
             return None
@@ -278,6 +284,30 @@ class Discovery:
         if bound is not None and (a - address) // 4 < bound:
             self.log('warning: table 0x%x: %d code entries, the switch bound says %d'
                      % (address, len(targets), bound))
+        if targets and bound is not None and self.relocations:
+            # A bound read on one path may be short (0x5f474b): relocated slots after it are cases too.
+            count = len(targets)
+            while (a - address) // 4 < MAX_TABLE and self.byte_class(a) != DATA:
+                value = self.table_entry(a, start, function)
+                if value is None:
+                    break
+                targets.append(value)
+                a += 4
+            if len(targets) > count:
+                self.log('note: table 0x%x: %d relocated entries past the switch bound %d'
+                         % (address, len(targets) - count, bound))
+        if targets and self.relocations and self.negated_index(jmp, function):
+            # `neg r; jmp [r*4 + T]` (memmove): the relocated slots below T are cases too.
+            b = start - 4
+            while len(targets) < MAX_TABLE and self.byte_class(b) != DATA:
+                value = self.table_entry(b, None, function)
+                if value is None:
+                    break
+                targets.insert(0, value)
+                start = b
+                b -= 4
+            if start != address:
+                self.log('note: table 0x%x extends down to 0x%x, %d entries' % (address, start, len(targets)))
         if not targets:
             # Negative index (`sub r, n; jb` then `jmp [r*4 + end]`): the entries lie just below the address.
             start = a = address
@@ -294,6 +324,26 @@ class Discovery:
         t = Table(address, a, targets, bound is not None, start)
         self.tables[address] = t
         return t
+
+    @staticmethod
+    def negated_index(jmp, function):
+        """True when the instruction before jmp negates its index register."""
+        ins = function.get(jmp.address - 2)
+        return ins is not None and mnemonic_of(ins) == 'neg' and ins.size == 2 and \
+            ins.operands[0].type == X.X86_OP_REG and ins.operands[0].reg == jmp.operands[0].mem.index
+
+    def pointer_immediate(self, ins):
+        """False when relocations show the immediate is a plain number."""
+        return not self.relocations or (ins.imm_offset and ins.address + ins.imm_offset in self.relocations)
+
+    def splits_relocation(self, ins):
+        """True when a relocated dword overlaps ins other than as a 4-byte operand."""
+        fields = set()
+        if ins.imm_size == 4:
+            fields.add(ins.address + ins.imm_offset)
+        if ins.disp_size == 4:
+            fields.add(ins.address + ins.disp_offset)
+        return any(r in self.relocations and r not in fields for r in range(ins.address - 3, ins.address + ins.size))
 
     def is_table_jump(self, ins):
         if mnemonic_of(ins) != 'jmp' or ins.operands[0].type != X.X86_OP_MEM:
@@ -333,7 +383,7 @@ class Discovery:
                             self.data_refs.add(disp)
                     if op.type == X.X86_OP_IMM and not is_jump(m) and m != 'call':
                         value = op.imm & 0xffffffff
-                        if op.size == 4 and self.image.is_code(value):
+                        if op.size == 4 and self.image.is_code(value) and self.pointer_immediate(ins):
                             code_refs.setdefault(value, set()).add(ins.address)
                 if m == 'call':
                     op = ins.operands[0]
@@ -437,6 +487,8 @@ class Discovery:
         read: the first run of fields that hold code addresses, at 4-byte steps from the object's address within
         OBJECT_SIZE bytes. Returns code address -> field addresses."""
         fields = {}
+        if self.relocations:
+            return fields
         for start in self.objects:
             run = False
             for a in range(start, start + OBJECT_SIZE, 4):
@@ -475,6 +527,8 @@ class Discovery:
         fall through into an entry: hand-written CRT dispatch targets share their tails."""
         displaced = set()
         table = why == 'data pointer' and self.in_pointer_table(entry)
+        # A relocated address is code or data: code may join accepted code at its instruction starts.
+        joins = table or bool(self.relocations)
 
         def displaces(address):
             """True when the accepted code at address belongs to a data pointer entry this code pointer outranks."""
@@ -497,9 +551,11 @@ class Discovery:
         if any(a + function[a].size > b for a, b in zip(ordered, ordered[1:])):
             return 'overlaps'
         for a, ins in function.items():
-            if table and a in self.code:
+            if joins and a in self.code:
                 continue
             m = mnemonic_of(ins)
+            if self.relocations and self.splits_relocation(ins):
+                return 'splits a relocation'
             # A function never starts in int3/nop padding (text like "ESE\0" = 0x00455345 points there).
             if m in IMPLAUSIBLE or (m in ('int3', 'nop') and a == entry):
                 return 'implausible'
@@ -517,7 +573,7 @@ class Discovery:
             if m == 'call' and self.calls_no_return(ins):
                 continue
             following = a + ins.size
-            if following in self.entries and not table and not displaces(following):
+            if following in self.entries and not joins and not displaces(following):
                 return 'runs into an entry'
         self.displaced |= displaced
         return None
@@ -568,6 +624,12 @@ class Discovery:
 
         pointers = {}
         self.string_pointers = {}
+        if self.relocations:
+            for r in sorted(self.relocations):
+                value = self.image.dword(r)
+                if self.image.is_code(value) and not self.image.is_code(r):
+                    pointers.setdefault(value, set()).add(r)
+            return pointers
         for s in self.image.sections:
             if s.code:
                 continue
@@ -639,7 +701,30 @@ class Discovery:
         # Entries code or data may hold the address of (text dwords too: being wrong there only costs speed).
         self.address_taken = set(e for e in self.entries if e in self.code_refs or e in self.data_pointers
                                  or e in self.string_pointers)
+        if self.relocations:
+            # Table slots too; dwords in unreached code-section bytes are not.
+            self.address_taken = set(self.image.dword(r) for r in self.relocations
+                                     if self.byte_class(r) != FREE) & self.entries
         self.address_taken.add(self.image.entry_point)
+
+    def relocated_code_addresses(self):
+        """Relocated dwords holding code addresses, by what is there."""
+        kinds = collections.Counter()
+        for r in self.relocations:
+            value = self.image.dword(r)
+            if not self.image.is_code(value):
+                continue
+            if self.byte_class(r) == FREE:
+                kinds['held in unreached code'] += 1
+            elif value in self.entries:
+                kinds['entries'] += 1
+            elif self.byte_class(value) == START:
+                kinds['other instructions'] += 1
+            elif self.in_data(value):
+                kinds['tables'] += 1
+            else:
+                kinds['no instruction'] += 1
+        return kinds
 
     def find_no_return(self):
         """Entries none of whose paths returns: least fixpoint over ret, tail calls, indirect jumps and falls into

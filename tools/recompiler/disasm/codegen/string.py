@@ -33,10 +33,15 @@ def cg_movs(ctx, dst, src, prefix=None):
         return _single(ctx, ['const x86::reg32 si = %s;' % ctx.reg('esi'), 'const x86::reg32 di = %s;' % ctx.reg('edi')] + store,
                        dst.size, ('esi', 'edi'))
     # rep and repne both copy ecx elements: movs does not test ZF.
+    count = ctx.reg('ecx')
     lines = ['const x86::reg32 step = %s;' % _step(dst.size),
              'x86::reg32 si = %s;' % ctx.reg('esi'), 'x86::reg32 di = %s;' % ctx.reg('edi'),
-             'for (x86::reg32 n = %s; n != 0; --n)' % ctx.reg('ecx'), '{'] + \
-        ['    ' + l for l in store] + ['    si += step;', '    di += step;', '}']
+             'if (rc::repMove(cpu.flags.df, %sdi, %ssi, %s, %du))' % (_segment(ctx, dst), _segment(ctx, src), count,
+                                                                      dst.size),
+             '{', '    si += %s * %du;' % (count, dst.size), '    di += %s * %du;' % (count, dst.size), '}',
+             'else', '{',
+             '    for (x86::reg32 n = %s; n != 0; --n)' % count, '    {'] + \
+        ['        ' + l for l in store] + ['        si += step;', '        di += step;', '    }', '}']
     lines += ctx.set_reg('esi', 'si') + ctx.set_reg('edi', 'di') + ctx.set_reg('ecx', '0')
     return ['{'] + ['    ' + l for l in lines] + ['}']
 
@@ -47,11 +52,15 @@ def cg_stos(ctx, dst, value, prefix=None):
     if prefix is None:
         return _single(ctx, ['const %s v = %s;' % (T(bits), ctx.val(value)), 'const x86::reg32 di = %s;' % ctx.reg('edi')] + store,
                        dst.size, ('edi',))
+    count = ctx.reg('ecx')
     lines = ['const x86::reg32 step = %s;' % _step(dst.size),
              'const %s v = %s;' % (T(bits), ctx.val(value)),
              'x86::reg32 di = %s;' % ctx.reg('edi'),
-             'for (x86::reg32 n = %s; n != 0; --n)' % ctx.reg('ecx'), '{'] + \
-        ['    ' + l for l in store] + ['    di += step;', '}']
+             'if (rc::repStore(cpu.flags.df, %sdi, %s, %du, v))' % (_segment(ctx, dst), count, dst.size),
+             '    di += %s * %du;' % (count, dst.size),
+             'else', '{',
+             '    for (x86::reg32 n = %s; n != 0; --n)' % count, '    {'] + \
+        ['        ' + l for l in store] + ['        di += step;', '    }', '}']
     lines += ctx.set_reg('edi', 'di') + ctx.set_reg('ecx', '0')
     return ['{'] + ['    ' + l for l in lines] + ['}']
 

@@ -43,4 +43,7 @@ $arguments = @((Join-Path $root 'recompiler/generate.py'), '--binaries', $Binari
 if ($Analysis) { $arguments += @('--analysis', $Analysis) }
 if ($FpuCheck) { $arguments += '--fpu-check' }
 if ($FlagAudit) { $arguments += '--flag-audit' }
+# Extra recompiler options for experiments, e.g. $env:NFSC_CODEGEN = '--promote-stack-slots --separate-stack
+# --fold-rdata --check-assumptions' (the NFSUG2_VITA passes, disasm/frames.py).
+if ($env:NFSC_CODEGEN) { $arguments += ($env:NFSC_CODEGEN -split '\s+' | Where-Object { $_ }) }
 if ((Invoke-Python @arguments) -ne 0) { throw 'generation failed' }

@@ -36,6 +36,8 @@ class StackInfo:
     def __init__(self):
         self.preserved = 0      # REG_BIT mask
         self.delta = None       # esp after return - esp at entry (4 + ret immediate), when every path agrees
+        self.skips = set()      # esp changes of paths popping the return address: they return from the caller too
+        self.skip_calls = {}    # call index -> esp offset there, for callees with skips
 
 
 def reg_symbol(regs, ins, op):
@@ -175,6 +177,13 @@ def analyze_function(fn, infos):
                     regs['esp'] = ('esp', esp[1] - 4 + callee.delta)
                 else:
                     regs['esp'] = None
+                if callee and callee.skips:
+                    # The callee may return from this function too.
+                    if esp == ('esp', 0):
+                        deltas.update(None if s is None else s - 4 for s in callee.skips)
+                    else:
+                        deltas.add(None)
+                    preserved &= sum(C.REG_BIT[r] for r in C.REGS if r != 'esp' and regs[r] == ('orig', r))
             else:
                 for op in written_memory(ins):
                     store(slots, address_symbol(regs, ins, op), op.size, None)
@@ -223,9 +232,31 @@ def analyze_function(fn, infos):
                 state_in[s] = merged
                 work.append(s)
     info.preserved = preserved & ~C.REG_BIT['esp']
-    if len(deltas) == 1:
+    return_pops(fn, infos, state_in, info)
+    if len(deltas) == 1 and not info.skips:
         (info.delta,) = deltas
     return info
+
+
+def return_pops(fn, infos, state_in, info):
+    """Fills info.skips and info.skip_calls from the final esp states."""
+    for i in range(fn.n):
+        if state_in[i] is None or fn.branch[i][0] == 'skip':
+            continue
+        esp = state_in[i][0]['esp']
+        ins = fn.instructions[i]
+        if ins.mnemonic.split()[-1] == 'ret' and esp == ('esp', 4):
+            info.skips.add(8 + (ins.operands[0].imm if ins.operands else 0))
+        if fn.branch[i][0] == 'call':
+            callee = infos.get(fn.branch[i][1])
+            if callee and callee.skips:
+                info.skip_calls[i] = esp[1] if esp and esp[0] == 'esp' else None
+        for x in fn.exits[i]:
+            callee = infos.get(x.target) if x.kind == 'tail' else None
+            if callee and esp == ('esp', 4):
+                info.skips.add(None if callee.delta is None else 4 + callee.delta)
+            elif callee and esp == ('esp', 0):
+                info.skips |= callee.skips
 
 
 def analyze(program, fns):
@@ -240,7 +271,8 @@ def analyze(program, fns):
         for fn in fns:
             info = analyze_function(fn, infos)
             old = infos.get(fn.entry_address)
-            if old is None or old.preserved != info.preserved or old.delta != info.delta:
+            if old is None or (old.preserved, old.delta, old.skips, old.skip_calls) != \
+                    (info.preserved, info.delta, info.skips, info.skip_calls):
                 infos[fn.entry_address] = info
                 changed = True
     return infos
