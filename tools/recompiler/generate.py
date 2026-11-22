@@ -318,6 +318,10 @@ def sync_output(stage, out_dir):
 # main.cpp sim_hz).
 RDATA_WRITTEN = [0x009e8f8c, 0x009c778c, 0x009d5f3c, 0x009d0584, 0x009ec0a8, 0x009ebb6c, 0x009db360]
 
+# Functions whose stack frame stays in guest memory with --promote-stack-slots / --separate-stack (frames.py):
+# 008995ff (EA audio) reaches its own frame through a heap pointer (run 329: alias check at 0089962a).
+FRAMES_EXCLUDE = [0x008995ff]
+
 
 def promote_stack_slots(program, promote, separate):
     """--promote-stack-slots / --separate-stack (disasm/frames.py, from NFSUG2_VITA)."""
@@ -500,6 +504,7 @@ def main():
     program.rdata_written = set(RDATA_WRITTEN)
     program.promote_bisect = args.promote_bisect
     program.check_poison = args.check_poison
+    program.frames_exclude = set(FRAMES_EXCLUDE)
     if args.promote_stack_slots or args.separate_stack:
         promote_stack_slots(program, args.promote_stack_slots, args.separate_stack)
     print('analysis done at %.0f s' % (time.time() - started))

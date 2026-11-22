@@ -1068,7 +1068,11 @@ class Analysis:
             for fn in pending:
                 local, vars_, rows, chosen, w = solve_function(self.program, fn, known)
                 self.chosen[fn.entry_address] = chosen
-                solutions[fn.entry_address] = local if rows is not None else None
+                # Only what differs from the shared table (run() starts from self.known again): whole copies of
+                # it per function took O(functions^2) memory, a MemoryError on NFSC.exe's ~27k functions.
+                solutions[fn.entry_address] = (dict((v, x) for v, x in local.items()
+                                                    if v not in known or known[v] != x)
+                                               if rows is not None else None)
                 if rows is None:
                     continue
                 own = ('fn', fn.entry_address)
@@ -1105,6 +1109,15 @@ class Analysis:
             if solutions.get(a) is None:
                 f = Frame()
                 f.reason = 'stack heights contradict' if a in solutions else 'registers in cpu'
+                f.unbounded = True
+                frames[a] = f
+                continue
+            # NFSCVita: a frame that rests on an indirect call's pops guessed by choose() stays in guest memory
+            # (run 329: 0041eef4's guess put the write at 0041ef04 in another slot than the read at 0041ef37), and
+            # so do the functions the port lists by hand (generate.py FRAMES_EXCLUDE).
+            if self.chosen.get(a) or a in getattr(self.program, 'frames_exclude', ()):
+                f = Frame()
+                f.reason = 'indirect call pops guessed' if self.chosen.get(a) else 'excluded by the port'
                 f.unbounded = True
                 frames[a] = f
                 continue
