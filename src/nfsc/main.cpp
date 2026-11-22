@@ -317,12 +317,31 @@ void poolFillPresent(win32::WinApplication* app)
     }
 }
 
-// Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, debug_poke, pool_log, then ai_drive.
+// Setting sim_hz (default 60 = the game): the rate of the fixed simulation steps. The sim service 00761150 runs
+// floor(acc * [0x9ec0a8]) steps of [0x9ebb6c] seconds (max 8), and 0076ad60 makes each step's time from
+// [0x9ebb6c]; nothing else reads either constant. At ~19 fps a 60 Hz sim runs ~3 steps per drawn frame (~3.6 ms
+// each). Run 326 (30 Hz via debug_poke): 21.0 fps vs 18.1-19.5, normal game speed (user).
+void simRatePresent(win32::WinApplication* app)
+{
+    static const int s_hz = pf::Config::getInt("sim_hz", 60);
+    static bool s_done = false;
+    if (s_done)
+        return;
+    s_done = true;
+    if (s_hz == 60 || s_hz < 20 || s_hz > 120)
+        return;
+    app->getMemory<float>(0x009ec0a8) = float(s_hz);
+    app->getMemory<float>(0x009ebb6c) = 1.0f / float(s_hz);
+    pf::logInfo("sim_hz: simulation steps at %d Hz (game: 60)", s_hz);
+}
+
+// Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, sim_hz, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
     nfsc::padPresent(app, cpu);
     carReflectionPresent(app);
     poolFillPresent(app);
+    simRatePresent(app);
     pokePresent(app);
     poolLogPresent(app);
     if (s_aiDrive)
