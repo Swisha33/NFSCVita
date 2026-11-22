@@ -332,6 +332,9 @@ void simRatePresent(win32::WinApplication* app)
         return;
     app->getMemory<float>(0x009ec0a8) = float(s_hz);
     app->getMemory<float>(0x009ebb6c) = 1.0f / float(s_hz);
+    // The step loop (00672f02) adds a step to the simulation clock from its own 1/60 copy (its only reader); left
+    // at 1/60, that clock ran at half speed at 30 Hz (run 327, user: strange, slower after jumps).
+    app->getMemory<float>(0x009db360) = 1.0f / float(s_hz);
     pf::logInfo("sim_hz: simulation steps at %d Hz (game: 60)", s_hz);
 }
 
