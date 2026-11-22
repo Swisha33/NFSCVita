@@ -423,6 +423,85 @@ int main(int, char**)
                         unsigned(pool), unsigned(count), unsigned(total), unsigned(largest),
                         unsigned(word(0x00b77084)), unsigned(word(0x00a9e620)), unsigned(word(0x00a9e62c) & 0xff),
                         unsigned(word(0x00a9e668)), unsigned(word(0x00b69c10)), unsigned(word(0x00a631b8)));
+            // The resource-file load slots of 0055f990: 64 of 16 bytes at 0xa8fb20, +2 in use, +3 keeps the slot
+            // after the load (0055fb4b), +0xc the requester. With all 64 in use a new load is dropped without a
+            // callback and its requester waits forever (quick race freeze, STATUS runs 302-307).
+            unsigned used = 0, kept = 0;
+            char slots[64 * 20 + 1];
+            int length = 0;
+            slots[0] = 0;
+            for (x86::reg32 slot = 0x00a8fb20; slot < 0x00a8ff20; slot += 16)
+            {
+                const x86::reg32 flags = word(slot);
+                if (!(flags & 0x00ff0000))
+                    continue;
+                ++used;
+                kept += (flags & 0xff000000) ? 1 : 0;
+                if (length < int(sizeof(slots)) - 24)
+                    length += snprintf(slots + length, sizeof(slots) - length, " %02x:%08x:%08x",
+                                       unsigned((slot - 0x00a8fb20) / 16), unsigned(flags), unsigned(word(slot + 0xc)));
+            }
+            pf::logInfo("memory: resource load slots %u of 64 in use (%u kept after loading); slot:flags:requester%s",
+                        used, kept, slots);
+            for (x86::reg32 slot = 0x00a8fb20; slot < 0x00a8ff20; slot += 16)
+                if (word(slot) & 0x00ff0000)
+                    pf::logInfo("memory: load slot %02x: %08x callback %08x(%08x) requester %08x",
+                                unsigned((slot - 0x00a8fb20) / 16), unsigned(word(slot)), unsigned(word(slot + 4)),
+                                unsigned(word(slot + 8)), unsigned(word(slot + 0xc)));
+            // The read queue 006b5d30 issues nothing while [a99690] - [a99694] + [a99698] >= 3 (reads in flight).
+            unsigned queued = 0;
+            char reads[8 * 40 + 1];
+            int readsLength = 0;
+            reads[0] = 0;
+            for (x86::reg32 node = word(0x00a99c40); node && node != 0x00a99c40 && queued < 100000; node = word(node))
+            {
+                if (queued++ < 8 && readsLength < int(sizeof(reads)) - 40)
+                    readsLength += snprintf(reads + readsLength, sizeof(reads) - readsLength, " %08x:%08x:%08x:%08x",
+                                            unsigned(node), unsigned(word(node + 0xc)), unsigned(word(node + 0x1c)),
+                                            unsigned(word(node + 0x10)));
+            }
+            pf::logInfo("memory: read queue [a99690] %u [a99694] %u [a99698] %u [a62ed4] %u [a9968c] %08x; %u queued "
+                        "(node:+c:+1c:+10)%s", unsigned(word(0x00a99690)), unsigned(word(0x00a99694)),
+                        unsigned(word(0x00a99698)), unsigned(word(0x00a62ed4)), unsigned(word(0x00a9968c)), queued, reads);
+            // The issued reads ([a99698] of them): list 0xa99a94, appended at 006b5e93; 006b4760 completes only the
+            // first, when its status +0x40 is 2 (done) or 3 (error). Run 312: 3 issued, 1 file read logged.
+            unsigned issued = 0;
+            for (x86::reg32 node = word(0x00a99a94); node && node != 0x00a99a94 && issued < 16; node = word(node))
+            {
+                ++issued;
+                pf::logInfo("memory: issued read %08x: status +40 %u, +8 %08x +c %08x +10 %08x +14 %08x +18 %08x "
+                            "+1c %08x +20 %08x +24 %08x +28 %08x +2c %08x +30 %08x +34 %08x +38 %08x +3c %08x",
+                            unsigned(node), unsigned(word(node + 0x40)), unsigned(word(node + 8)),
+                            unsigned(word(node + 0xc)), unsigned(word(node + 0x10)), unsigned(word(node + 0x14)),
+                            unsigned(word(node + 0x18)), unsigned(word(node + 0x1c)), unsigned(word(node + 0x20)),
+                            unsigned(word(node + 0x24)), unsigned(word(node + 0x28)), unsigned(word(node + 0x2c)),
+                            unsigned(word(node + 0x30)), unsigned(word(node + 0x34)), unsigned(word(node + 0x38)),
+                            unsigned(word(node + 0x3c)));
+            }
+            pf::logInfo("memory: %u issued reads in list 0xa99a94; [a99660] %08x [a99664] %08x [a99668] %08x",
+                        issued, unsigned(word(0x00a99660)), unsigned(word(0x00a99664)), unsigned(word(0x00a99668)));
+            // Job worker threads (entry 008d6b40, threads 6 and 10): the parameter object has +4 running, +8 queue
+            // head, +0xc tail, +0x10 count; each job runs through [job + 0x44] (008d6b9a).
+            for (unsigned index = 0; index < 4; ++index)
+            {
+                const x86::reg32 worker = win32::kernel32::threadParameter(0x008d6b40, index);
+                if (!worker)
+                    break;
+                char jobs[8 * 48 + 1];
+                int jobsLength = 0;
+                jobs[0] = 0;
+                unsigned count = 0;
+                for (x86::reg32 job = word(worker + 8); job && count < 8; job = word(job), ++count)
+                    jobsLength += snprintf(jobs + jobsLength, sizeof(jobs) - jobsLength, " %08x:%08x:%08x:%08x",
+                                           unsigned(job), unsigned(word(job + 4)), unsigned(word(job + 8)),
+                                           unsigned(word(job + 0xc)));
+                pf::logInfo("memory: job worker %u at %08x: running %u head %08x tail %08x count %u; words +0 %08x "
+                            "+14 %08x +18 %08x +1c %08x +20 %08x; jobs (job:+4:+8:+c)%s",
+                            index, unsigned(worker), unsigned(word(worker + 4) & 0xff), unsigned(word(worker + 8)),
+                            unsigned(word(worker + 0xc)), unsigned(word(worker + 0x10)), unsigned(word(worker)),
+                            unsigned(word(worker + 0x14)), unsigned(word(worker + 0x18)), unsigned(word(worker + 0x1c)),
+                            unsigned(word(worker + 0x20)), jobs);
+            }
         });
         // The city (L5RA.BUN) also has a permanent section, number 2500, of 74.4 MB that 0079ebf4 takes from the
         // main heap, so on the Vita the pool has to shrink by about that much: 139 MB (PC) -> ~37 MB.

@@ -305,6 +305,20 @@ HANDLE CreateMutexA(WinApplication* app, x86::CPU& cpu,
 // Guest thread id -> entry point, for setting thread_normal.
 static pf::LwMutex s_threadEntriesMutex("thread entries");
 static std::map<x86::reg32, x86::reg32> s_threadEntries;
+// Guest thread id -> resolved parameter (diagnostics: scheduler::threadParameter).
+static std::map<x86::reg32, x86::reg32> s_threadParameters;
+
+x86::reg32 threadParameter(x86::reg32 entry, unsigned index)
+{
+    pf::LwLockGuard guard(s_threadEntriesMutex);
+    for (const auto& item : s_threadEntries)
+        if (item.second == entry && index-- == 0)
+        {
+            const auto it = s_threadParameters.find(item.first);
+            return it != s_threadParameters.end() ? it->second : 0;
+        }
+    return 0;
+}
 
 // Setting thread_normal: guest threads (by entry point, hex, comma-separated) that run at normal priority whatever
 // they ask for; empty keeps the game's priorities. Above normal, a thread waiting for the execution lock makes the
@@ -345,9 +359,13 @@ HANDLE CreateThread(WinApplication* app, x86::CPU& cpu,
     {
         pf::LwLockGuard guard(s_threadEntriesMutex);
         s_threadEntries[thread->threadId()] = entry;
+        s_threadParameters[thread->threadId()] =
+            scheduler::resolveParameter(app, x86::reg32(lpStartAddress), x86::reg32(lpParameter));
     }
-    pf::logInfo("CreateThread: thread 0x%x (entry 0x%08x) is handle 0x%x", unsigned(thread->threadId()),
-                unsigned(entry), unsigned(handle));
+    pf::logInfo("CreateThread: thread 0x%x (entry 0x%08x, parameter 0x%08x) is handle 0x%x",
+                unsigned(thread->threadId()), unsigned(entry),
+                unsigned(scheduler::resolveParameter(app, x86::reg32(lpStartAddress), x86::reg32(lpParameter))),
+                unsigned(handle));
     return handle;
 }
 

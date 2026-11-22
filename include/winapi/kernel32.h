@@ -421,6 +421,9 @@ BOOL CreateProcessA(WinApplication* app, x86::CPU& cpu, LPCSTR lpApplicationName
 BOOL IsDebuggerPresent(WinApplication* app, x86::CPU& cpu);
 UINT GetSystemDirectoryA(WinApplication* app, x86::CPU& cpu, LPSTR lpBuffer, UINT uSize);
 
+// Diagnostics: the resolved parameter of the index-th guest thread started at entry (0 when there is none).
+x86::reg32 threadParameter(x86::reg32 entry, unsigned index);
+
 }}
 
 #endif

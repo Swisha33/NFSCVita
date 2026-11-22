@@ -1,5 +1,17 @@
 # Release notes
 
+## v0.1.5 (pre-release)
+
+The quick race freeze with a teammate is fixed. Install the new `NFSCVita.vpk` over the old one; your game files and
+saves stay.
+
+### Fixed
+- **A quick race froze while loading when the teammate's car had finished loading in the menu**
+  ([#1](https://github.com/Swisha33/NFSCVita/issues/1)). At the race start the game waits in a loop for the cars to
+  load, while one of EA's worker threads does the reads. On the Vita only one thread runs game code at a time, and
+  that loop never let the worker in: a deadlock. The loop now gives way for 1 ms per pass (`race_start_yield=off`
+  restores the old behaviour). Loading that race can still take a while.
+
 ## v0.1.4 (pre-release)
 
 Quick races with top-tier cars load again. Install the new `NFSCVita.vpk` over the old one; your game files and saves

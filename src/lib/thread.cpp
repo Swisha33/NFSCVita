@@ -454,6 +454,24 @@ x86::reg32 resolveEntry(WinApplication* app, x86::reg32 startAddress, x86::reg32
     return startAddress;
 }
 
+x86::reg32 resolveParameter(WinApplication* app, x86::reg32 startAddress, x86::reg32 parameter)
+{
+    for (int level = 0; level < 4; ++level)
+    {
+        const StartThunk* found = nullptr;
+        for (const StartThunk& thunk : s_startThunks)
+        {
+            if (thunk.thunk == startAddress)
+                found = &thunk;
+        }
+        if (!found || !parameter)
+            break;
+        startAddress = app->getMemory<x86::reg32>(parameter + found->entryOffset);
+        parameter = app->getMemory<x86::reg32>(parameter + found->parameterOffset);
+    }
+    return parameter;
+}
+
 ThreadControl* currentControl()
 {
     pf::LwLockGuard guard(s_tableMutex);

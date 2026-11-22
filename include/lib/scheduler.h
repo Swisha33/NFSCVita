@@ -42,6 +42,8 @@ const char* threadName(x86::reg32 entryPoint);
 void setStartThunk(x86::reg32 thunk, x86::reg32 entryOffset, x86::reg32 parameterOffset);
 // The entry point a CreateThread start routine and parameter lead to.
 x86::reg32 resolveEntry(WinApplication* app, x86::reg32 startAddress, x86::reg32 parameter);
+// The parameter that entry point gets (the same thunks followed).
+x86::reg32 resolveParameter(WinApplication* app, x86::reg32 startAddress, x86::reg32 parameter);
 // The threads of Speed.exe (roles, names, the CRT thunk).
 void configureGameThreads();
 

@@ -39,8 +39,8 @@ endif()
 
 set(VITA_APP_NAME "NFS Carbon")
 set(VITA_TITLEID  "NFSCVITA0")
-set(NFSU_VERSION  "0.1.4")
-set(VITA_VERSION  "00.14")
+set(NFSU_VERSION  "0.1.5")
+set(VITA_VERSION  "00.15")
 
 option(NFSU_LOG_DEBUG        "Verbose runtime logging" OFF)
 option(NFSU_ASSERT_SOFT      "Log failed assertions instead of trapping" OFF)
