@@ -37,6 +37,9 @@ set(NFSU_PLATFORM_SOURCES
   src/platform/fpu_selftest.cpp
   src/platform/gxm/gxm_device.cpp
   src/platform/gxm/gxm_render.cpp
+  # Compressed texture read-back cache (VitaBoost zcache + LZ4, vendored).
+  src/third_party/vitaboost/vb_zcache.c
+  src/third_party/vitaboost/lz4.c
 )
 
 set(NFSU_LIB_SOURCES

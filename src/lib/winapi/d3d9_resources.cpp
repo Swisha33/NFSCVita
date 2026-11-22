@@ -1,7 +1,9 @@
 // Direct3D resources: textures (2D, cube, render targets), surfaces, vertex and index buffers, vertex
 // declarations. Guest locks go to guest memory; unlocks write the GPU copy (a new one when frames in flight
 // still read the current one), swizzled on a job worker. The lock buffer of a level is kept after its unlock, so
-// the next lock of the level returns it instead of reading the GPU copy back.
+// the next lock of the level returns it instead of reading the GPU copy back. With texture_zcache_mb set, kept
+// copies dropped by the byte cap are stored LZ4-compressed (VitaBoost zcache), and a later lock that misses the kept
+// copies decompresses them instead of reading the GPU copy back.
 
 #include <winapi/d3d9_internal.h>
 #include <platform/config.h>
@@ -11,7 +13,9 @@
 #include <platform/sync.h>
 #include <algorithm>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/sysmem.h>
 #include <unordered_set>
+#include "../../third_party/vitaboost/vb_zcache.h"
 
 namespace win32 { namespace d3d9
 {
@@ -60,6 +64,18 @@ void waitTicket(uint32_t ticket)
 
 // ---- Kept linear copies --------------------------------------------------------------------------------------------
 
+// Compressed cache of dropped kept copies (setting texture_zcache_mb, default 0 = off; texture_zcache_mem cdram or
+// main). Levels below ZcacheMinBytes are cheap to read back and would only fill the entry table. Most of Carbon's
+// textures are DXT, which LZ4 barely shrinks: those are rejected after a 16 KB probe, so they cost little.
+const uint32_t ZcacheMinBytes = 4096;
+const unsigned ZcacheMinSavingPct = 15;
+const int      ZcacheAcceleration = 2;
+
+uint64_t zcacheKey(const Texture* texture, uint32_t index)
+{
+    return (uint64_t(uintptr_t(texture)) << 32) | index;
+}
+
 // A level's lock buffer after its unlock, with the upload that reads it.
 struct KeptLevel
 {
@@ -84,10 +100,133 @@ struct KeptLevels
     uint32_t        count = 0;
     uint32_t        cap;
 
+    vb_zcache*      zcache = nullptr;
+    SceUID          zcacheBlock = -1;
+
     KeptLevels()
         :   cap(uint32_t(std::max(0, pf::Config::getInt("texture_cache_mb", 12))) * 1024 * 1024)
     {
         MemMap::setReclaim(&reclaim);
+        initZcache();
+    }
+
+    void initZcache()
+    {
+        const int mb = std::max(0, pf::Config::getInt("texture_zcache_mb", 0));
+        if (!mb)
+            return;
+        static const char* const memNames[] = { "cdram", "main" };
+        const int mem = pf::Config::getChoice("texture_zcache_mem", memNames, 2, 0);
+        const uint32_t size = uint32_t(mb) * 1024 * 1024;
+        zcacheBlock = sceKernelAllocMemBlock("d3d9_zcache", mem == 0 ? SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW
+                                                                     : SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, size, nullptr);
+        if (zcacheBlock < 0)
+        {
+            pf::logInfo("d3d9: texture_zcache_mb=%d: no %s memory (0x%08x), compressed cache off", mb, memNames[mem],
+                        unsigned(zcacheBlock));
+            zcacheBlock = -1;
+            return;
+        }
+        void* base = nullptr;
+        sceKernelGetMemBlockBase(zcacheBlock, &base);
+        zcache = vb_zcache_create(base, size, 0, ZcacheMinSavingPct, ZcacheAcceleration);
+        if (!zcache)
+        {
+            pf::logInfo("d3d9: compressed cache metadata allocation failed, cache off");
+            sceKernelFreeMemBlock(zcacheBlock);
+            zcacheBlock = -1;
+            return;
+        }
+        SceKernelFreeMemorySizeInfo info;
+        memset(&info, 0, sizeof(info));
+        info.size = sizeof(info);
+        sceKernelGetFreeMemorySize(&info);
+        pf::logInfo("d3d9: compressed texture cache %d MB in %s memory; free after it: user %d KB, cdram %d KB", mb,
+                    memNames[mem], info.size_user / 1024, info.size_cdram / 1024);
+        pf::perf::uploadZcache(0, 0, size);
+    }
+
+    // mutex held.
+    void reportZcache()
+    {
+        if (!zcache || !pf::perf::enabled())
+            return;
+        vb_zcache_stats st;
+        vb_zcache_get_stats(zcache, &st);
+        pf::perf::uploadZcache(st.live_bytes, st.live_entries, st.capacity);
+    }
+
+    // Stores a dropped kept copy compressed; mutex held, upload done.
+    void storeCompressed(KeptLevel* level)
+    {
+        Texture* texture = level->owner;
+        // Exactly the bytes a lock of the level asks for (the guest block may be rounded up).
+        const render::TextureDesc& desc = texture->m_desc;
+        const uint32_t bytes = texture::levelBytes(desc.format, desc.width, desc.height, level->index % desc.levels);
+        if (bytes < ZcacheMinBytes || bytes > level->bytes || !texture->m_written[level->index])
+            return;
+        const bool counted = pf::perf::enabled();
+        const bool timed = pf::perf::timed();
+        const uint32_t start = timed ? pf::perf::now() : 0;
+        vb_zcache_stats before;
+        if (counted)
+            vb_zcache_get_stats(zcache, &before);
+        const int stored = vb_zcache_put(zcache, zcacheKey(texture, level->index),
+                                         host(level->memory->getBlockStart()), bytes);
+        if (counted)
+        {
+            pf::perf::upload(pf::perf::UploadZcachePuts, 1);
+            if (stored == 0)
+            {
+                vb_zcache_stats after;
+                vb_zcache_get_stats(zcache, &after);
+                pf::perf::upload(pf::perf::UploadZcacheStores, 1);
+                pf::perf::upload(pf::perf::UploadZcacheRawBytes, bytes);
+                pf::perf::upload(pf::perf::UploadZcacheCompBytes, uint32_t(after.comp_stored - before.comp_stored));
+            }
+        }
+        if (timed)
+            pf::perf::upload(pf::perf::UploadZcacheCompressUs, pf::perf::now() - start);
+        reportZcache();
+    }
+
+    // Lock of a written level that missed the kept copies: decompresses into dst if the level is cached (the entry
+    // is removed either way).
+    bool takeCompressed(const Texture* texture, uint32_t index, void* dst, uint32_t bytes)
+    {
+        if (!zcache)
+            return false;
+        pf::LwLockGuard guard(mutex);
+        const bool timed = pf::perf::timed();
+        const uint32_t start = timed ? pf::perf::now() : 0;
+        const bool hit = vb_zcache_take(zcache, zcacheKey(texture, index), dst, bytes) == 0;
+        if (hit)
+        {
+            if (pf::perf::enabled())
+            {
+                pf::perf::upload(pf::perf::UploadZcacheHits, 1);
+                pf::perf::upload(pf::perf::UploadZcacheHitBytes, bytes);
+            }
+            if (timed)
+                pf::perf::upload(pf::perf::UploadZcacheHitUs, pf::perf::now() - start);
+        }
+        reportZcache();
+        return hit;
+    }
+
+    // The level gets new contents or goes away: its compressed copy is stale. mutex held.
+    void eraseCompressedLocked(const Texture* texture, uint32_t index)
+    {
+        if (zcache)
+            vb_zcache_erase(zcache, zcacheKey(texture, index));
+    }
+
+    void eraseCompressed(const Texture* texture, uint32_t index)
+    {
+        if (!zcache)
+            return;
+        pf::LwLockGuard guard(mutex);
+        eraseCompressedLocked(texture, index);
     }
 
     static KeptLevels& get()
@@ -126,11 +265,13 @@ struct KeptLevels
         level->owner->m_kept[level->index] = nullptr;
     }
 
-    // Frees the buffer once its upload is done; mutex held.
-    void drop(KeptLevel* level, bool evicted)
+    // Frees the buffer once its upload is done, compressing it first if asked and the cache is on; mutex held.
+    void drop(KeptLevel* level, bool evicted, bool compress = false)
     {
         unlink(level);
         waitTicket(level->ticket);
+        if (compress && zcache)
+            storeCompressed(level);
         delete level->memory;
         delete level;
         if (evicted && pf::perf::enabled())
@@ -147,7 +288,7 @@ struct KeptLevels
             {
                 KeptLevel* newer = level->newer;
                 if ((pass == 1 || level->owner->m_lockCounts[level->index] < 2) && gpu().uploadDone(level->ticket))
-                    drop(level, true);
+                    drop(level, true, true);
                 level = newer;
             }
         }
@@ -250,6 +391,8 @@ Texture::~Texture()
             if (level)
                 k.drop(level, false);
         }
+        for (uint32_t i = 0; i < m_kept.size(); ++i)
+            k.eraseCompressedLocked(this, i);
         k.report();
     }
     for (size_t i = 0; i < m_locks.size(); ++i)
@@ -442,15 +585,24 @@ HRESULT Texture::lock(uint32_t face, uint32_t level, D3DLOCKED_RECT* locked, con
         memory = new MemMap(bytes, MemMap::High, pf::perf::AllocTextureLock);
         if (m_written[index] && !(flags & D3DLOCK_DISCARD))
         {
-            const bool timed = pf::perf::timed();
-            const uint32_t start = timed ? pf::perf::now() : 0;
-            gpu().readTexture(m_storage, face, level, host(memory->getBlockStart()), pitch);
-            if (timed)
+            // The compressed cache first (texture_zcache_mb), then a read-back of the GPU copy.
+            if (!KeptLevels::get().takeCompressed(this, index, host(memory->getBlockStart()), bytes))
             {
-                pf::perf::upload(pf::perf::UploadReadBacks, 1);
-                pf::perf::upload(pf::perf::UploadReadBackBytes, bytes);
-                pf::perf::upload(pf::perf::UploadReadBackUs, pf::perf::now() - start);
+                const bool timed = pf::perf::timed();
+                const uint32_t start = timed ? pf::perf::now() : 0;
+                gpu().readTexture(m_storage, face, level, host(memory->getBlockStart()), pitch);
+                if (timed)
+                {
+                    pf::perf::upload(pf::perf::UploadReadBacks, 1);
+                    pf::perf::upload(pf::perf::UploadReadBackBytes, bytes);
+                    pf::perf::upload(pf::perf::UploadReadBackUs, pf::perf::now() - start);
+                }
             }
+        }
+        else if (m_written[index])
+        {
+            // Discarded: the level gets new contents, a compressed copy of the old ones is stale.
+            KeptLevels::get().eraseCompressed(this, index);
         }
     }
     m_tickets[index] = ticket;

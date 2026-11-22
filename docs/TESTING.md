@@ -33,4 +33,9 @@ The registry values the game writes are kept in `ux0:data/NFSCVITA/registry.txt`
 - `boot_race=on` skips the front end into a race; `ai_drive=on` lets the AI drive (benchmark);
   `auto_input=FROM-TO:buttons[:hold|tap|weave]` presses buttons without a player.
 - `screenshot_every=N` (`screenshot_from`, `screenshot_count`) saves frames as `shot_*.bmp`.
+- `texture_zcache_mb=8` (experimental, default 0 = off): kept texture copies dropped by the `texture_cache_mb` cap
+  are stored LZ4-compressed, and a later lock decompresses them instead of reading the GPU copy back.
+  `texture_zcache_mem=cdram` (default) or `main` picks the memory for it. With `timing_log=on` a
+  `perf: zcache ...` line follows the `perf: textures ...` line: compare the zcache hit time with the read-back
+  time there. DXT levels barely compress and are mostly rejected (stores N/M).
 - `cpu_clock=444` sets the CPU clock at start for a test without PSVshell (PSVshell, when running, overrides it).

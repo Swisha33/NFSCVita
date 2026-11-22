@@ -34,7 +34,7 @@ const char* const Known[] =
     "benchmark", "benchmark_exit", "benchmark_seconds", "benchmark_laps", "benchmark_opponents", "benchmark_track",
     "benchmark_timing_log", "benchmark_mode", "benchmark_car", "benchmark_driver",
     // Renderer.
-    "alpha_draw_order", "skip_unused_alpha_test", "matrices_on_render_thread", "texture_cache_mb", "texture_async",
+    "alpha_draw_order", "skip_unused_alpha_test", "matrices_on_render_thread", "texture_cache_mb", "texture_zcache_mb", "texture_zcache_mem", "texture_async",
     "gxm_precomputed", "gxm_lists", "gxm_core2", "gxm_program_list", "cull_swap", "debug_frame_dump", "debug_frame_dump_from",
     "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "pool_log", "debug_texoffset", "debug_evict_buffers", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "fast_chunk_unload", "city_reserve", "file_log", "load_trace", "race_start_yield", "bank_unlocked", "ug2_layout",
     // Native versions of guest code and their shadow compares.
