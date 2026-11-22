@@ -289,20 +289,40 @@ void poolLogPresent(win32::WinApplication* app)
             total += size;
             ++count;
         }
-        length += snprintf(line + length, sizeof(line) - size_t(length), " %u%s: %u KB free (%u, largest %u KB);",
+        // +0x40: 004758e0 fills each freed block (0xeeeeeeee or a pattern) when this byte is set.
+        length += snprintf(line + length, sizeof(line) - size_t(length), " %u%s: %u KB free (%u, largest %u KB, fill %u);",
                            unsigned(n), n == audioPool ? " audio" : "", unsigned(total / 1024), unsigned(count),
-                           unsigned(largest / 1024));
+                           unsigned(largest / 1024), unsigned(word(pool + 0x40) & 0xff));
         if (length >= int(sizeof(line)) - 64)
             break;
     }
-    pf::logInfo("pool_log: audio pool %u KB; pools%s", unsigned(word(0x00a8c2c0) / 1024), line);
+    pf::logInfo("pool_log: audio pool %u KB; [a85384] %u [a4e298] %u; pools%s", unsigned(word(0x00a8c2c0) / 1024),
+                unsigned(word(0x00a85384)), unsigned(word(0x00a4e298)), line);
 }
 
-// Per Present: the pad layout (pad.cpp), car_reflections, debug_poke, pool_log, then ai_drive.
+// Setting pool_fill (default off): the game's free 004758e0 fills every freed block with 0xeeeeeeee (rep stosd at
+// 004759d6) when the pool's byte +0x40 is set; run 318: set in 8 of the 9 pools (pool_log "fill 1"). The fill is
+// a debug aid nothing reads back; 004758e0 was the hottest game function (3 % of samples, run 315). Off clears the
+// byte in every pool at each Present (pools made later get it cleared at the next one).
+void poolFillPresent(win32::WinApplication* app)
+{
+    static const bool s_fill = pf::Config::getBool("pool_fill", false);
+    if (s_fill)
+        return;
+    for (x86::reg32 n = 0; n < 16; ++n)
+    {
+        const x86::reg32 pool = app->getMemory<x86::reg32>(0x00a84c20 + n * 4);
+        if (pool && win32::MemMap::isGuestRange(pool + 0x40, 1))
+            app->getMemory<uint8_t>(pool + 0x40) = 0;
+    }
+}
+
+// Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
     nfsc::padPresent(app, cpu);
     carReflectionPresent(app);
+    poolFillPresent(app);
     pokePresent(app);
     poolLogPresent(app);
     if (s_aiDrive)
