@@ -345,6 +345,8 @@ void simRatePresent(win32::WinApplication* app)
 // +0x20 is set. The screen in control decides where the pad's mouse pointer works: in the front end (game flow
 // [0xa99bbc] = 3) and, while playing, when a map or menu is in control; never while driving with only the HUD.
 // Setting fe_log (default on): logs the screens whenever they change.
+void textEntryPresent(win32::WinApplication* app, const std::string& screen);
+
 bool menuScreen(const std::string& name)
 {
     static const char* const Menus[] = { "WorldMap", "Pause", "Dialog", "Options", "Sms", "Jukebox", "Controller",
@@ -366,6 +368,7 @@ void feLogPresent(win32::WinApplication* app)
     std::string names;
     bool menu = word(0x00a99bbc) == 3;
     bool map = false;
+    std::string control;
     const x86::reg32 engine = feng ? word(feng) : 0;
     bool controlFound = false;
     for (x86::reg32 pkg = engine ? word(engine + 0xd8 + 0xc) : 0, n = 0; pkg && n < 32; pkg = word(pkg + 8), ++n)
@@ -381,12 +384,15 @@ void feLogPresent(win32::WinApplication* app)
         }
         const bool inControl = !controlFound && word(pkg + 0x20) != 0;
         controlFound = controlFound || inControl;
+        if (inControl)
+            control = one;
         menu = menu || (inControl && menuScreen(one));
         map = map || (inControl && one.find("WorldMap") != std::string::npos);
         if (!names.empty())
             names += ' ';
         names += inControl ? "*" + one : one;
     }
+    textEntryPresent(app, control);
     win32::Gamepad::setPointerEnabled(menu || map);
     win32::Gamepad::setMapScreen(map);
     // Once: the front-end manager 0xa604b8 (00570230), whose virtual +4 takes WM_CHAR (00712219): where typed text
@@ -403,6 +409,47 @@ void feLogPresent(win32::WinApplication* app)
         s_last = names;
         pf::logInfo("fe: screens (game flow %u): %s", unsigned(word(0x00a99bbc)), names.empty() ? "(none)" : names.c_str());
     }
+}
+
+// Text entry: the front-end manager 0xa604b8 (00570230) sends WM_CHAR (00712219, OnChar 005c5260) to its edit
+// object [+0x27c] while that is set and [+0x280] >= 0x1e; the edit object (append 005836c0) has the text as 16-bit
+// characters at [+8], the longest text at [+0x10]. While a field is active, the Vita keyboard opens for it
+// (Gamepad::editText) and types the result back as WM_CHAR, then Enter as a key press.
+void textEntryPresent(win32::WinApplication* app, const std::string& screen)
+{
+    static bool s_editing = false;
+    const auto word = [app](x86::reg32 address) -> x86::reg32
+    { return win32::MemMap::isGuestRange(address, 4) ? x86::reg32(app->getMemory<x86::reg32>(address)) : 0u; };
+    const x86::reg32 edit = word(0x00a604b8 + 0x27c);
+    const bool active = edit && x86::sreg32(word(0x00a604b8 + 0x280)) >= 0x1e;
+    if (!active)
+    {
+        if (s_editing)
+            win32::Gamepad::endTextEdit();
+        s_editing = false;
+        return;
+    }
+    if (s_editing)
+        return;
+    s_editing = true;
+    const x86::reg32 buffer = word(edit + 8);
+    x86::reg32 maxLength = word(edit + 0x10);
+    if (maxLength == 0 || maxLength > 63)
+        maxLength = 63;
+    char text[64] = {};
+    for (x86::reg32 i = 0; buffer && i < maxLength && win32::MemMap::isGuestRange(buffer + 2 * i, 2); ++i)
+    {
+        const x86::reg16 c = app->getMemory<x86::reg16>(buffer + 2 * i);
+        if (!c)
+            break;
+        text[i] = c < 0x80 ? char(c) : '?';
+    }
+    const char* title = screen.find("SaveGhost") != std::string::npos ? "Ghost name"
+                      : screen.find("PCOnline") != std::string::npos ? "Online account"
+                      : "Profile name";
+    win32::Gamepad::setTextCommitKeys(true);
+    win32::Gamepad::editText(title, text, maxLength, " .-_", true);
+    pf::logInfo("fe: text entry on %s, at most %u characters, text \"%s\"", screen.c_str(), unsigned(maxLength), text);
 }
 
 // Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, sim_hz, debug_poke, pool_log, then ai_drive.

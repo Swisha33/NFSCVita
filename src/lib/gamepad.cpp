@@ -81,6 +81,7 @@ bool                    s_touchSlid;
 uint64_t                s_clickUntilUs;     // DirectInput mouse button 0 down until then
 int                     s_clientWidth = 640, s_clientHeight = 480;
 float                   s_mouseReadX = 0.5f, s_mouseReadY = 0.5f;   // pointer at the last DirectInput read
+bool                    s_commitWithKeys = false;   // Gamepad::setTextCommitKeys: Enter / Escape as key presses
 bool                    s_pointerEnabled = true;    // Gamepad::setPointerEnabled: menus and maps only
 bool                    s_mapScreen = false;        // Gamepad::setMapScreen: a world map is in control
 // On a map the pointer stays inside this border; a finger in the border (or the right stick pushing the pointer
@@ -159,7 +160,10 @@ void queueText(const char* text, uint32_t maxLength, bool field)
         queueChar(*c);
         ++typed;
     }
-    queueChar(CharEnter);
+    if (s_commitWithKeys)
+        queueKey(controls::keyCode(controls::KeyEnter));
+    else
+        queueChar(CharEnter);
 }
 
 // The game cancels a field on Escape. A field that refuses that is emptied and committed instead, which the game
@@ -168,7 +172,10 @@ void queueCancel()
 {
     if (s_field.cancellable)
     {
-        queueChar(CharEscape);
+        if (s_commitWithKeys)
+            queueKey(controls::keyCode(controls::KeyEscape));
+        else
+            queueChar(CharEscape);
         return;
     }
     queueClear();
@@ -569,6 +576,12 @@ void Gamepad::editText(const char* title, const char* text, uint32_t maxLength, 
     s_field.maxLength = maxLength;
     snprintf(s_field.extraChars, sizeof(s_field.extraChars), "%s", extraChars);
     s_field.cancellable = cancellable;
+}
+
+void Gamepad::setTextCommitKeys(bool keys)
+{
+    pf::LwLockGuard lock(s_mutex);
+    s_commitWithKeys = keys;
 }
 
 void Gamepad::endTextEdit()

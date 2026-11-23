@@ -102,6 +102,8 @@ public:
                          bool cancellable);
     // Ends the edit of the field: a keyboard still open for it closes without typing.
     static void endTextEdit();
+    // Commit (Enter) and cancel (Escape) typed as key presses instead of WM_CHAR (Carbon's dialogs take keys).
+    static void setTextCommitKeys(bool keys);
 
 private:
     x86::reg32      m_index;
