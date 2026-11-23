@@ -16,6 +16,7 @@
 #include <platform/sampler.h>
 #include <platform/shadercomp.h>
 #include <fpu.h>
+#include <recomp.h>
 #include <mmx.h>
 #include <nfsc.h>
 #include "bankcode.h"
@@ -381,6 +382,18 @@ int main(int, char**)
     pf::logSetConsole(pf::Config::getBool("console_log", false));
     // Setting cpu_clock: 0 (default) leaves the ARM clock to the player (PSVshell); 333, 444 or 500 set it here, so a
     // test build needs no overclocking tool before the start. (Bus 222 / GPU 222 / xbar 166 MHz are set above.)
+    // Settings promote_lo / promote_hi (hex guest addresses; builds generated with --promote-bisect): only functions
+    // in [lo, hi) keep their stack slots in locals, to find a function frames.py gets wrong without regenerating.
+    {
+        const std::string lo = pf::Config::getString("promote_lo", ""), hi = pf::Config::getString("promote_hi", "");
+        if (!lo.empty() || !hi.empty())
+        {
+            rc::g_promoteLo = lo.empty() ? 0u : x86::reg32(strtoul(lo.c_str(), nullptr, 16));
+            const x86::reg32 end = hi.empty() ? 0xffffffffu : x86::reg32(strtoul(hi.c_str(), nullptr, 16));
+            rc::g_promoteSpan = end - rc::g_promoteLo;
+            pf::logInfo("promote: stack slots in locals only in 0x%08x..0x%08x", unsigned(rc::g_promoteLo), unsigned(end));
+        }
+    }
     const int cpuClock = pf::Config::getInt("cpu_clock", 0);
     if (cpuClock == 333 || cpuClock == 444 || cpuClock == 500)
         scePowerSetArmClockFrequency(cpuClock);
