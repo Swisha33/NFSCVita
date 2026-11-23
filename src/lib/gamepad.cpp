@@ -90,7 +90,6 @@ const float MapEdge = 0.10f;
 // The rear panel is far wider than tall (1920 x 781): top and bottom get a deeper border and a softer start, else
 // scrolling up / down felt harsh (the user).
 const float MapEdgeY = 0.15f;
-const float MapEdgeTop = 0.20f;     // up felt harsher still with 0.15 (the user): deeper and softer at the top
 float                   s_edgeX, s_edgeY;           // the left-stick push, -1..1
 
 void copyText(char16_t* target, const char* source, uint32_t maxLength)
@@ -298,23 +297,23 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
         if (pad.rearTouch)
         {
             s_edgeX = edge(pad.rearX, MapEdge);
-            s_edgeY = pad.rearY < 0.5f ? edge(pad.rearY, MapEdgeTop) : edge(pad.rearY, MapEdgeY);
+            s_edgeY = edge(pad.rearY, MapEdgeY);
         }
         else
         {
             const float sx = stick(pad.sticks[2]), sy = stick(pad.sticks[3]);
             if ((s_pointerX <= MapEdge && sx < 0.0f) || (s_pointerX >= 1.0f - MapEdge && sx > 0.0f))
                 s_edgeX = sx;
-            if ((s_pointerY <= MapEdgeTop && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdgeY && sy > 0.0f))
+            if ((s_pointerY <= MapEdgeY && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdgeY && sy > 0.0f))
                 s_edgeY = sy;
         }
         // A push the menus' stick threshold surely sees, growing towards the panel's edge.
         const auto firm = [](float v, float least)
         { return v == 0.0f ? 0.0f : (v < 0.0f ? -1.0f : 1.0f) * (least + (1.0f - least) * std::fabs(v)); };
         s_edgeX = s_edgeX == 0.0f ? 0.0f : (s_edgeX < 0.0f ? -1.0f : 1.0f) * std::max(std::fabs(s_edgeX), 0.6f);  // as tested
-        s_edgeY = firm(s_edgeY, s_edgeY < 0.0f ? 0.35f : 0.45f);
+        s_edgeY = firm(s_edgeY, 0.45f);
         s_pointerX = std::min(std::max(s_pointerX, MapEdge), 1.0f - MapEdge);
-        s_pointerY = std::min(std::max(s_pointerY, MapEdgeTop), 1.0f - MapEdgeY);
+        s_pointerY = std::min(std::max(s_pointerY, MapEdgeY), 1.0f - MapEdgeY);
     }
     s_pointerX = std::min(std::max(s_pointerX, 0.0f), 1.0f);
     s_pointerY = std::min(std::max(s_pointerY, 0.0f), 1.0f);
