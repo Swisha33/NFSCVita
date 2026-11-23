@@ -76,6 +76,13 @@ void logInit(const char* logFilePath)
     }
     if (s_logPath)
     {
+        // The previous run's log stays as <name>.prev.log: a crash log survives the restart after it.
+        char previous[sizeof(s_logPathBuffer) + 8];
+        const char* dot = strrchr(s_logPath, '.');
+        const int stem = dot ? int(dot - s_logPath) : int(strlen(s_logPath));
+        snprintf(previous, sizeof(previous), "%.*s.prev%s", stem, s_logPath, dot ? dot : "");
+        sceIoRemove(previous);
+        sceIoRename(s_logPath, previous);
         // Only this descriptor writes the file, so its position is always the end: no SCE_O_APPEND.
         s_logFd = sceIoOpen(s_logPath, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (s_logFd < 0)
