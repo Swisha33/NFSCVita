@@ -229,8 +229,8 @@ static const PadButton s_padButtons[] =
 
 static bool s_touchReady = false;
 static bool s_rearTouch = true;
-// The rear panel's active area for the pointer (sceTouchGetPanelInfo; the assumed 0..1919 x 108..997 left the
-// bottom border out of reach, the user: map scrolling down did not work).
+// The rear panel's active area for the pointer, as sceTouchGetPanelInfo reported it (run 342; the call itself is left
+// out: with it the rear panel stopped reporting touches). The assumed 108..997 left the bottom border out of reach.
 static float s_rearMinX = 0.0f, s_rearMaxX = 1919.0f, s_rearMinY = 108.0f, s_rearMaxY = 889.0f;
 
 // Setting rear_touch (on by default) turns the rear touch inputs off.
@@ -241,17 +241,6 @@ static void initTouch()
     if (s_rearTouch)
     {
         sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
-        SceTouchPanelInfo info;
-        memset(&info, 0, sizeof(info));
-        if (sceTouchGetPanelInfo(SCE_TOUCH_PORT_BACK, &info) >= 0 && info.maxAaX > info.minAaX && info.maxAaY > info.minAaY)
-        {
-            s_rearMinX = info.minAaX;
-            s_rearMaxX = info.maxAaX;
-            s_rearMinY = info.minAaY;
-            s_rearMaxY = info.maxAaY;
-        }
-        pf::logInfo("touch: rear panel active area x %.0f..%.0f, y %.0f..%.0f", double(s_rearMinX), double(s_rearMaxX),
-                    double(s_rearMinY), double(s_rearMaxY));
     }
 }
 
