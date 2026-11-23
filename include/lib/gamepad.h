@@ -88,6 +88,8 @@ public:
     // area of that size (GetCursorPos), and the motion since the last call plus button 0 (DirectInput mouse).
     static void pointer(int clientWidth, int clientHeight, int* x, int* y);
     static void mouseState(int* dx, int* dy, bool* button);
+    // The pointer follows the rear panel and the right stick only while enabled (menus and maps); off while driving.
+    static void setPointerEnabled(bool enabled);
 
     // A text field of the game is being edited and holds text (ASCII; any thread; called again while it lasts). The
     // first call of a field opens the on-screen keyboard with that text. Confirmed text replaces the field's (End,

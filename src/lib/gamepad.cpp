@@ -81,6 +81,7 @@ bool                    s_touchSlid;
 uint64_t                s_clickUntilUs;     // DirectInput mouse button 0 down until then
 int                     s_clientWidth = 640, s_clientHeight = 480;
 float                   s_mouseReadX = 0.5f, s_mouseReadY = 0.5f;   // pointer at the last DirectInput read
+bool                    s_pointerEnabled = true;    // Gamepad::setPointerEnabled: menus and maps only
 
 void copyText(char16_t* target, const char* source, uint32_t maxLength)
 {
@@ -218,6 +219,12 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
 {
     const float dt = s_pointerUs ? std::min(float(now - s_pointerUs) * 1e-6f, 0.1f) : 0.0f;
     s_pointerUs = now;
+    if (!s_pointerEnabled)
+    {
+        s_touching = false;     // a touch that began while driving never clicks
+        s_clickUntilUs = 0;
+        return;
+    }
     const auto stick = [](float v)
     {
         const float a = std::fabs(v);
@@ -331,6 +338,14 @@ void Gamepad::pointer(int clientWidth, int clientHeight, int* x, int* y)
     }
     *x = int(std::lround(s_pointerX * float(s_clientWidth - 1)));
     *y = int(std::lround(s_pointerY * float(s_clientHeight - 1)));
+}
+
+void Gamepad::setPointerEnabled(bool enabled)
+{
+    pf::LwLockGuard lock(s_mutex);
+    if (enabled != s_pointerEnabled)
+        pf::logInfo("input: pointer (rear touch, right stick) %s", enabled ? "on: menu or map" : "off: driving");
+    s_pointerEnabled = enabled;
 }
 
 void Gamepad::mouseState(int* dx, int* dy, bool* button)

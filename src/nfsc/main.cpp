@@ -3,6 +3,7 @@
 // Derived from UG1VITA's src/nfsu/main.cpp (MIT). Bring-up stage: no game-specific hooks yet.
 
 #include <lib/file.h>
+#include <lib/gamepad.h>
 #include <lib/memmap.h>
 #include <lib/registry.h>
 #include <lib/scheduler.h>
@@ -339,6 +340,54 @@ void simRatePresent(win32::WinApplication* app)
     pf::logInfo("sim_hz: simulation steps at %d Hz (game: 60)", s_hz);
 }
 
+// The open front-end screens (FEng packages): cFEng * at [0xa97a78], package list at +0xe0 (next +4), name (char *)
+// at +0xc (the Mac port's fe_pad.h). They decide where the pad's mouse pointer works: in the front end (game flow
+// [0xa99bbc] = 3) and, while playing, when a map or menu is open; never while driving with only the HUD.
+// Setting fe_log (default on): logs the screens whenever they change.
+bool menuScreen(const std::string& name)
+{
+    static const char* const Menus[] = { "WorldMap", "Pause", "Dialog", "Options", "Sms", "Jukebox", "Controller",
+                                         "Keyboard", "MC_", "PostRace", "PostPursuit", "PostStages", "Busted",
+                                         "GameOver", "GameWon", "RewardCard", "BonusCards", "BossDefeated" };
+    for (const char* m : Menus)
+        if (name.find(m) != std::string::npos)
+            return true;
+    return false;
+}
+
+void feLogPresent(win32::WinApplication* app)
+{
+    static const bool s_on = pf::Config::getBool("fe_log", true);
+    static std::string s_last;
+    const auto word = [app](x86::reg32 address) -> x86::reg32
+    { return win32::MemMap::isGuestRange(address, 4) ? x86::reg32(app->getMemory<x86::reg32>(address)) : 0u; };
+    const x86::reg32 feng = word(0x00a97a78);
+    std::string names;
+    bool menu = word(0x00a99bbc) == 3;
+    for (x86::reg32 pkg = feng ? word(feng + 0xe0) : 0, n = 0; pkg && n < 32; pkg = word(pkg + 4), ++n)
+    {
+        const x86::reg32 name = word(pkg + 0xc);
+        std::string one;
+        for (x86::reg32 i = 0; name && i < 48 && win32::MemMap::isGuestRange(name + i, 1); ++i)
+        {
+            const char c = char(x86::reg8(app->getMemory<x86::reg8>(name + i)));
+            if (!c)
+                break;
+            one += c;
+        }
+        menu = menu || menuScreen(one);
+        if (!names.empty())
+            names += ' ';
+        names += one;
+    }
+    win32::Gamepad::setPointerEnabled(menu);
+    if (s_on && names != s_last)
+    {
+        s_last = names;
+        pf::logInfo("fe: screens (game flow %u): %s", unsigned(word(0x00a99bbc)), names.empty() ? "(none)" : names.c_str());
+    }
+}
+
 // Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, sim_hz, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
@@ -346,6 +395,7 @@ void framePresent(win32::WinApplication* app, x86::CPU& cpu)
     carReflectionPresent(app);
     poolFillPresent(app);
     simRatePresent(app);
+    feLogPresent(app);
     pokePresent(app);
     poolLogPresent(app);
     if (s_aiDrive)
