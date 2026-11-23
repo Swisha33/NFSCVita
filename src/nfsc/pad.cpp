@@ -13,7 +13,7 @@
 //
 // Our joystick (src/lib/controls.cpp): buttons 0 Triangle, 1 Circle, 2 Cross, 3 Square, 4 / 5 rear touch upper
 // left / right, 6 L, 7 R, 8 Select (tap), 9 Start, 10 / 11 rear touch lower left / right, 12-15 d-pad up, right,
-// down, left; axes 0 X / 1 Y = left stick.
+// down, left; axes 0 X / 1 Y = left stick, 2 Z / 5 Rz = right stick.
 //
 // Setting ug2_layout (default on).
 
@@ -36,7 +36,7 @@ const x86::reg32 PadPortCount = 0x00a98948;
 const unsigned DefaultRows = 47;
 const unsigned MaxPorts = 4;
 
-enum : x86::reg32 { Button = 2, AxisMinus = 4, AxisPlus = 5 };
+enum : x86::reg32 { Button = 2, AxisMinus = 4, AxisPlus = 5, RotationMinus = 6, RotationPlus = 7 };
 enum : x86::reg32
 {
     Triangle = 0, Circle = 1, Cross = 2, Square = 3, RearUpperLeft = 4, RearUpperRight = 5, L = 6, R = 7,
@@ -44,6 +44,9 @@ enum : x86::reg32
     DpadLeft = 15
 };
 const x86::reg32 StickX = 0, StickY = 1;
+// The right stick: X on lZ (axis kinds 4/5, control 2) and Y on lRz (rotation kinds 6/7, control 2), as XInput
+// pads report it and the Mac port binds rows 33-36 (XtendedInput's Carbon defaults, "menus: right stick").
+const x86::reg32 RightStickX = 2, RightStickY = 2;
 
 struct Binding
 {
@@ -77,6 +80,10 @@ const Binding Layout[] =
     { 30, Button, DpadRight, AxisPlus, StickX },        // menu right
     { 31, Button, DpadUp, AxisMinus, StickY },          // menu up
     { 32, Button, DpadDown, AxisPlus, StickY },         // menu down
+    { 33, AxisMinus, RightStickX, 0, 0 },               // menu right stick left (world map cursor)
+    { 34, AxisPlus, RightStickX, 0, 0 },                // menu right stick right
+    { 35, RotationMinus, RightStickY, 0, 0 },           // menu right stick up
+    { 36, RotationPlus, RightStickY, 0, 0 },            // menu right stick down
     { 37, Button, Cross, 0, 0 },                        // accept
     { 38, Button, Circle, 0, 0 },                       // back
     { 39, Button, Start, 0, 0 },                        // start
@@ -166,6 +173,22 @@ void dropRearShift(win32::WinApplication* app, unsigned port)
     pf::logInfo("pad: controller %u: rear-touch shifting removed", port);
 }
 
+// Rows 33-36 (the right stick in menus: the world map cursor) came with the layout on 2026-11-23; a profile saved
+// before has them unbound and gets them, as long as all four are still unbound.
+void addRightStick(win32::WinApplication* app, unsigned port)
+{
+    for (unsigned row = 33; row <= 36; ++row)
+    {
+        const x86::reg32 at = triple(app, row, 2 * port + 2);
+        if (!at || app->getMemory<x86::reg32>(at) != 0)
+            return;
+    }
+    for (const Binding& b : Layout)
+        if (b.row >= 33 && b.row <= 36)
+            set(app, port, b.row, 0, b.kind, b.control);
+    pf::logInfo("pad: controller %u: right stick added for the menus (world map cursor)", port);
+}
+
 }
 
 void installPad()
@@ -201,7 +224,10 @@ void padPresent(win32::WinApplication* app, x86::CPU&)
             pf::logInfo("pad: controller %u set to the UG2 Vita layout", port);
         }
         else
+        {
             dropRearShift(app, port);
+            addRightStick(app, port);
+        }
     }
 }
 

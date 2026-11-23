@@ -165,7 +165,7 @@ uint32_t buttonMask(Input input)
     return mask;
 }
 
-// The adapter's four axes: X, Y (left stick), Z (combined pedal, held centred) and Rz (right stick Y).
+// The adapter's four axes: X, Y (left stick), Z and Rz (right stick X and Y).
 bool axisPresent(Axis axis)
 {
     return axis == AxisX || axis == AxisY || axis == AxisZ || axis == AxisRz;
@@ -436,7 +436,7 @@ State Mapper::update(const PadSample& pad, uint64_t nowUs)
 
     state.axes[AxisX] = pad.sticks[0];
     state.axes[AxisY] = pad.sticks[1];
-    state.axes[AxisZ] = 0.0f;
+    state.axes[AxisZ] = pad.sticks[2];     // right stick X (Carbon's menu rows 33/34: the world map cursor)
     state.axes[AxisRz] = pad.sticks[3];
 
     // Hat 0 follows the d-pad: hundredths of a degree clockwise from up, -1 when centred.
