@@ -297,14 +297,14 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
         if (pad.rearTouch)
         {
             s_edgeX = edge(pad.rearX, MapEdge);
-            s_edgeY = edge(pad.rearY, MapEdgeY);
+            s_edgeY = std::max(edge(pad.rearY, MapEdgeY), 0.0f);    // up: no push, the game's own (the user)
         }
         else
         {
             const float sx = stick(pad.sticks[2]), sy = stick(pad.sticks[3]);
             if ((s_pointerX <= MapEdge && sx < 0.0f) || (s_pointerX >= 1.0f - MapEdge && sx > 0.0f))
                 s_edgeX = sx;
-            if ((s_pointerY <= MapEdgeY && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdgeY && sy > 0.0f))
+            if (s_pointerY >= 1.0f - MapEdgeY && sy > 0.0f)
                 s_edgeY = sy;
         }
         // A push the menus' stick threshold surely sees, growing towards the panel's edge.
@@ -313,7 +313,7 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
         s_edgeX = s_edgeX == 0.0f ? 0.0f : (s_edgeX < 0.0f ? -1.0f : 1.0f) * std::max(std::fabs(s_edgeX), 0.6f);  // as tested
         s_edgeY = firm(s_edgeY, 0.45f);
         s_pointerX = std::min(std::max(s_pointerX, MapEdge), 1.0f - MapEdge);
-        s_pointerY = std::min(std::max(s_pointerY, MapEdgeY), 1.0f - MapEdgeY);
+        s_pointerY = std::min(s_pointerY, 1.0f - MapEdgeY);       // the top stays free: the game scrolls up itself
     }
     s_pointerX = std::min(std::max(s_pointerX, 0.0f), 1.0f);
     s_pointerY = std::min(std::max(s_pointerY, 0.0f), 1.0f);
