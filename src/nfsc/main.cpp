@@ -302,13 +302,14 @@ void poolLogPresent(win32::WinApplication* app)
                 unsigned(word(0x00a85384)), unsigned(word(0x00a4e298)), line);
 }
 
-// Setting pool_fill (default off): the game's free 004758e0 fills every freed block with 0xeeeeeeee (rep stosd at
+// Setting pool_fill (default on = the game): the game's free 004758e0 fills every freed block with 0xeeeeeeee (rep stosd at
 // 004759d6) when the pool's byte +0x40 is set; run 318: set in 8 of the 9 pools (pool_log "fill 1"). The fill is
-// a debug aid nothing reads back; 004758e0 was the hottest game function (3 % of samples, run 315). Off clears the
+// a debug aid nothing reads back; 004758e0 was the hottest game function (3 % of samples, run 315), but off measured no
+// gain (runs 319 / 320 vs 316-318), so the game's behaviour stays the default. Off clears the
 // byte in every pool at each Present (pools made later get it cleared at the next one).
 void poolFillPresent(win32::WinApplication* app)
 {
-    static const bool s_fill = pf::Config::getBool("pool_fill", false);
+    static const bool s_fill = pf::Config::getBool("pool_fill", true);
     if (s_fill)
         return;
     for (x86::reg32 n = 0; n < 16; ++n)

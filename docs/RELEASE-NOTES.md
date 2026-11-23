@@ -1,5 +1,29 @@
 # Release notes
 
+## v0.1.6 (pre-release)
+
+Faster, a working world map, and the keyboard opens by itself. Install the new `NFSCVita.vpk` over the old one; your
+game files and saves stay.
+
+### New
+- **About 6 % faster.** The recompiler now keeps the game's local variables in CPU registers instead of memory where
+  no other code can see them (the stack-slot optimization from [NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VITA)).
+  Free roam at 500 MHz: about 20 fps instead of about 18.8.
+- **World map and mouse menus work.** Carbon's PC map uses a mouse cursor, which the Vita did not have. The rear
+  touch is now the cursor: the whole rear panel stands for the screen, the cursor goes where your finger is, and a
+  short tap clicks (selects a race). The right stick moves it too. With the finger at the panel's edge (or the right
+  stick pushing against it) the map scrolls that way. Only in menus and maps; while driving the rear touch keeps its
+  look-back and camera functions.
+- **The keyboard opens by itself** on text fields such as the profile name, and its title says what you are
+  editing. Select + Triangle still opens it by hand.
+
+### Fixed
+- The game's log of the previous run is kept as `ux0:data/NFSCVITA/nfscvita.prev.log`, so a crash log survives a
+  restart (please attach it to bug reports after a crash).
+
+### Known issues
+- Spoken audio follows your game files: a copy installed in another language speaks that language.
+
 ## v0.1.5 (pre-release)
 
 The quick race freeze with a teammate is fixed. Install the new `NFSCVita.vpk` over the old one; your game files and

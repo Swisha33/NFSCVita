@@ -108,6 +108,21 @@ Controls screen; a changed layout is kept and saved with the profile.
 | L / R, Square / Triangle | The menu's extra functions |
 | Start | Start |
 
+### Maps, mouse menus and text entry
+
+In the front end and in menus or maps opened while playing (never while driving):
+
+| Input | Action |
+|-------|--------|
+| Rear touch | The cursor: the whole rear panel stands for the screen, the cursor goes where your finger is |
+| Rear touch, short tap | Click (select a race on the map) |
+| Right stick | Move the cursor |
+| Finger at the rear panel's edge (or right stick against it) | Scroll the world map that way |
+| L / R | Zoom the world map |
+
+Text fields (profile name and others) open the Vita's keyboard by themselves; the typed text goes into the game.
+Select + Triangle opens the keyboard by hand.
+
 ## Settings
 
 Settings go in `ux0:data/NFSCVITA/nfscvita.cfg`, one `name=value` per line (create the file if it does not exist).
@@ -122,7 +137,7 @@ Lines starting with `#` are comments.
 | `frame_rate` | `30` (default), `60` | Frame cap |
 | `skip_movies` | `on` (default), `off` | Movies are slow and grey in this version, so they are skipped |
 | `audio_max_rate` | `24000` (default), up to `48000` | Mixing rate; higher sounds better and costs speed |
-| `rear_touch` | `on` (default), `off` | Rear touch inputs (look back, camera) |
+| `rear_touch` | `on` (default), `off` | Rear touch inputs (look back, camera, the map and menu cursor) |
 | `ug2_layout` | `on` (default), `off` | The Vita button layout above, or the game's generic controller layout |
 | `use_core3` | `on` (default), `off` | Use the fourth core when CapUnlocker opens it |
 | `stream_track_kb` | `46000` (default) | Size of the track streaming pool in KB; larger can crash at the career start |
@@ -183,7 +198,8 @@ changed. The build options are described at the top of `tools/build.ps1`.
 - [NDRWhun](https://github.com/NDRWhun): [UG1VITA](https://github.com/NDRWhun/UG1VITA), the Need for Speed
   Underground Vita port this one is built on (runtime, recompiler, renderer)
 - [danos-x5](https://github.com/danos-x5): [NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VITA) (control layout,
-  on-Vita shader compiler, sampling profiler, LiveArea art script, many ideas)
+  on-Vita shader compiler, sampling profiler, LiveArea art script, the recompiler's stack-slot optimization, many
+  ideas)
 - [vasist15-source](https://github.com/vasist15-source): [nfs-carbon-mac](https://github.com/vasist15-source/nfs-carbon-mac)
   (Carbon addresses and data layouts: effects, controls, movies, widescreen)
 - [ThirteenAG](https://github.com/ThirteenAG): [WidescreenFixesPack](https://github.com/ThirteenAG/WidescreenFixesPack)

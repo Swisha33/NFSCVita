@@ -43,7 +43,11 @@ $arguments = @((Join-Path $root 'recompiler/generate.py'), '--binaries', $Binari
 if ($Analysis) { $arguments += @('--analysis', $Analysis) }
 if ($FpuCheck) { $arguments += '--fpu-check' }
 if ($FlagAudit) { $arguments += '--flag-audit' }
-# Extra recompiler options for experiments, e.g. $env:NFSC_CODEGEN = '--promote-stack-slots --separate-stack
-# --fold-rdata --check-assumptions' (the NFSUG2_VITA passes, disasm/frames.py).
-if ($env:NFSC_CODEGEN) { $arguments += ($env:NFSC_CODEGEN -split '\s+' | Where-Object { $_ }) }
+# Recompiler optimizations (NFSUG2_VITA's passes, disasm/frames.py): stack slots no other code sees in C++ locals,
+# .rdata loads as constants. v0.1.6: ~+6 % fps (runs 334 / 335). --separate-stack is left out: with it the game wrote
+# through a null pointer and crashed (run 331). $env:NFSC_CODEGEN replaces the list ('none' = no optimizations), e.g.
+# '--promote-stack-slots --fold-rdata --check-assumptions' to log where the facts behind them fail. The generator
+# stamp does not include these options: run with -Regenerate after changing them.
+$codegen = if ($env:NFSC_CODEGEN) { $env:NFSC_CODEGEN } else { '--promote-stack-slots --fold-rdata' }
+if ($codegen -ne 'none') { $arguments += ($codegen -split '\s+' | Where-Object { $_ }) }
 if ((Invoke-Python @arguments) -ne 0) { throw 'generation failed' }
