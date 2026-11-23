@@ -82,6 +82,11 @@ uint64_t                s_clickUntilUs;     // DirectInput mouse button 0 down u
 int                     s_clientWidth = 640, s_clientHeight = 480;
 float                   s_mouseReadX = 0.5f, s_mouseReadY = 0.5f;   // pointer at the last DirectInput read
 bool                    s_pointerEnabled = true;    // Gamepad::setPointerEnabled: menus and maps only
+bool                    s_mapScreen = false;        // Gamepad::setMapScreen: a world map is in control
+// On a map the pointer stays inside this border; a finger in the border (or the right stick pushing the pointer
+// against it) pushes the left stick that way, which scrolls the map (the user: the left stick and d-pad scroll it).
+const float MapEdge = 0.10f;
+float                   s_edgeX, s_edgeY;           // the left-stick push, -1..1
 
 void copyText(char16_t* target, const char* source, uint32_t maxLength)
 {
@@ -223,6 +228,7 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
     {
         s_touching = false;     // a touch that began while driving never clicks
         s_clickUntilUs = 0;
+        s_edgeX = s_edgeY = 0.0f;
         return;
     }
     const auto stick = [](float v)
@@ -267,6 +273,37 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
             s_clickUntilUs = now + ClickHoldUs;
         }
     }
+    s_edgeX = s_edgeY = 0.0f;
+    if (s_mapScreen)
+    {
+        const auto edge = [](float v)
+        {
+            if (v < MapEdge)
+                return -(MapEdge - v) / MapEdge;
+            if (v > 1.0f - MapEdge)
+                return (v - (1.0f - MapEdge)) / MapEdge;
+            return 0.0f;
+        };
+        if (pad.rearTouch)
+        {
+            s_edgeX = edge(pad.rearX);
+            s_edgeY = edge(pad.rearY);
+        }
+        else
+        {
+            const float sx = stick(pad.sticks[2]), sy = stick(pad.sticks[3]);
+            if ((s_pointerX <= MapEdge && sx < 0.0f) || (s_pointerX >= 1.0f - MapEdge && sx > 0.0f))
+                s_edgeX = sx;
+            if ((s_pointerY <= MapEdge && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdge && sy > 0.0f))
+                s_edgeY = sy;
+        }
+        // A push that the d-pad threshold of the menus surely sees.
+        const auto firm = [](float v) { return v == 0.0f ? 0.0f : (v < 0.0f ? -1.0f : 1.0f) * std::max(std::fabs(v), 0.6f); };
+        s_edgeX = firm(s_edgeX);
+        s_edgeY = firm(s_edgeY);
+        s_pointerX = std::min(std::max(s_pointerX, MapEdge), 1.0f - MapEdge);
+        s_pointerY = std::min(std::max(s_pointerY, MapEdge), 1.0f - MapEdge);
+    }
     s_pointerX = std::min(std::max(s_pointerX, 0.0f), 1.0f);
     s_pointerY = std::min(std::max(s_pointerY, 0.0f), 1.0f);
 }
@@ -290,6 +327,11 @@ void pump()
         s_releaseWait &= pad.inputs;
     const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0;
     updatePointer(pad, now, busy);
+    if (s_edgeX != 0.0f || s_edgeY != 0.0f)
+    {
+        state.axes[controls::AxisX] = std::min(std::max(state.axes[controls::AxisX] + s_edgeX, -1.0f), 1.0f);
+        state.axes[controls::AxisY] = std::min(std::max(state.axes[controls::AxisY] + s_edgeY, -1.0f), 1.0f);
+    }
     if (!busy && s_field.active && !s_field.shown)
     {
         openIme(true);
@@ -346,6 +388,12 @@ void Gamepad::setPointerEnabled(bool enabled)
     if (enabled != s_pointerEnabled)
         pf::logInfo("input: pointer (rear touch, right stick) %s", enabled ? "on: menu or map" : "off: driving");
     s_pointerEnabled = enabled;
+}
+
+void Gamepad::setMapScreen(bool map)
+{
+    pf::LwLockGuard lock(s_mutex);
+    s_mapScreen = map;
 }
 
 void Gamepad::mouseState(int* dx, int* dy, bool* button)

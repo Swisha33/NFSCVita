@@ -90,6 +90,8 @@ public:
     static void mouseState(int* dx, int* dy, bool* button);
     // The pointer follows the rear panel and the right stick only while enabled (menus and maps); off while driving.
     static void setPointerEnabled(bool enabled);
+    // On a map the pointer keeps off the screen border, and a finger there scrolls the map through the left stick.
+    static void setMapScreen(bool map);
 
     // A text field of the game is being edited and holds text (ASCII; any thread; called again while it lasts). The
     // first call of a field opens the on-screen keyboard with that text. Confirmed text replaces the field's (End,

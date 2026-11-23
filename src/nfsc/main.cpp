@@ -365,6 +365,7 @@ void feLogPresent(win32::WinApplication* app)
     const x86::reg32 feng = word(0x00a97a78);
     std::string names;
     bool menu = word(0x00a99bbc) == 3;
+    bool map = false;
     const x86::reg32 engine = feng ? word(feng) : 0;
     bool controlFound = false;
     for (x86::reg32 pkg = engine ? word(engine + 0xd8 + 0xc) : 0, n = 0; pkg && n < 32; pkg = word(pkg + 8), ++n)
@@ -381,11 +382,22 @@ void feLogPresent(win32::WinApplication* app)
         const bool inControl = !controlFound && word(pkg + 0x20) != 0;
         controlFound = controlFound || inControl;
         menu = menu || (inControl && menuScreen(one));
+        map = map || (inControl && one.find("WorldMap") != std::string::npos);
         if (!names.empty())
             names += ' ';
         names += inControl ? "*" + one : one;
     }
-    win32::Gamepad::setPointerEnabled(menu);
+    win32::Gamepad::setPointerEnabled(menu || map);
+    win32::Gamepad::setMapScreen(map);
+    // Once: the front-end manager 0xa604b8 (00570230), whose virtual +4 takes WM_CHAR (00712219): where typed text
+    // goes, to find the name-entry dialog.
+    static bool s_vtableLogged = false;
+    if (!s_vtableLogged && word(0x00a604b8))
+    {
+        s_vtableLogged = true;
+        const x86::reg32 vt = word(0x00a604b8);
+        pf::logInfo("fe: manager 0xa604b8 vtable %08x, OnChar %08x", unsigned(vt), unsigned(word(vt + 4)));
+    }
     if (s_on && names != s_last)
     {
         s_last = names;
