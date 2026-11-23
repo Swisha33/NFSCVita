@@ -83,6 +83,8 @@ struct PadSample
 {
     uint32_t    inputs;             // bit per Input
     float       sticks[4];          // left x, left y, right x, right y: -1..1, y down
+    bool        rearTouch;          // a finger on the rear panel (the first one)
+    float       rearX, rearY;       // ... where: 0..1 across the panel, y down
 };
 
 PadSample readPad();

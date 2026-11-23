@@ -84,6 +84,10 @@ public:
     // Input pump: reads the pad, posts the key changes as window messages and runs the on-screen keyboard. Called
     // by the message loop, at each presented frame and at each poll. Any thread.
     static void updateKeys();
+    // The mouse pointer (rear touch panel = the screen, right stick moves it, a rear tap clicks): position in a client
+    // area of that size (GetCursorPos), and the motion since the last call plus button 0 (DirectInput mouse).
+    static void pointer(int clientWidth, int clientHeight, int* x, int* y);
+    static void mouseState(int* dx, int* dy, bool* button);
 
     // A text field of the game is being edited and holds text (ASCII; any thread; called again while it lasts). The
     // first call of a field opens the on-screen keyboard with that text. Confirmed text replaces the field's (End,

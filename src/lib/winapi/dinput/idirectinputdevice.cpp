@@ -4,6 +4,7 @@
 #include <lib/controls.h>
 #include <lib/gamepad.h>
 #include <lib/memmap.h>
+#include <platform/log.h>
 #include <cstddef>
 #include <cstdio>
 #include <vector>
@@ -480,6 +481,23 @@ HRESULT IDirectInputDevice::GetDeviceState(WinApplication* app, x86::CPU& cpu,
         return DI_OK;
     }
     memset(lpvData, 0, cbData);
+    if (dynamic_cast<Mouse*>(m_resource) && cbData >= 16)
+    {
+        // DIMOUSESTATE: lX, lY, lZ (relative), rgbButtons[4]: the pad's pointer (Gamepad::mouseState).
+        static bool s_logged = false;
+        if (!s_logged)
+        {
+            s_logged = true;
+            pf::logInfo("input: DirectInput mouse state read (pointer motion, rear tap = button 0)");
+        }
+        int dx = 0, dy = 0;
+        bool button = false;
+        Gamepad::mouseState(&dx, &dy, &button);
+        x86::sreg32* axes = reinterpret_cast<x86::sreg32*>(lpvData);
+        axes[0] = dx;
+        axes[1] = dy;
+        reinterpret_cast<x86::reg8*>(lpvData)[12] = button ? 0x80 : 0x00;
+    }
     return DI_OK;
 }
 
@@ -491,6 +509,12 @@ HRESULT IDirectInputDevice::GetDeviceData(WinApplication* app, x86::CPU& cpu,
     RC_USE(cbObjectData);
     RC_USE(rgdod);
     RC_USE(dwFlags);
+    static bool s_logged = false;
+    if (!s_logged && dynamic_cast<Mouse*>(m_resource))
+    {
+        s_logged = true;
+        pf::logInfo("input: DirectInput mouse buffered data read (not supplied: the pointer comes as state)");
+    }
     if (pdwInOut)
         *pdwInOut = 0;
     return DI_OK;

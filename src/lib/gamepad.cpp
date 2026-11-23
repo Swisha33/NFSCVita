@@ -4,6 +4,7 @@
 #include <platform/log.h>
 #include <platform/sync.h>
 #include <platform/time.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -62,6 +63,24 @@ std::deque<TypedKey>    s_typing;           // key messages of confirmed text no
 uint64_t                s_typedUs;          // when the last one was posted
 bool                    s_typedDown[256];   // typed keys down, by DirectInput code
 Gamepad::PollHook       s_pollHook;         // not guarded: set before the game starts
+
+// The mouse pointer (Carbon's world map and other mouse menus): 0..1 across the game window's client area. The rear
+// touch panel maps onto the whole screen (the cursor goes where the finger is), the right stick moves it, and a
+// short tap on the rear panel without sliding is a left click there.
+const float PointerSpeed = 0.9f;            // screen widths per second at full right-stick deflection
+const float PointerDeadZone = 0.25f;
+const uint64_t TapMaxUs = 300000;           // a tap: lifted within this time ...
+const float TapMaxSlide = 0.04f;            // ... and moved at most this far (fraction of the panel)
+const uint64_t ClickHoldUs = 120000;        // the DirectInput mouse button reads down this long after a tap
+float                   s_pointerX = 0.5f, s_pointerY = 0.5f;
+uint64_t                s_pointerUs;        // last pointer update
+bool                    s_touching;         // a finger is on the rear panel
+uint64_t                s_touchStartUs;
+float                   s_touchStartX, s_touchStartY;
+bool                    s_touchSlid;
+uint64_t                s_clickUntilUs;     // DirectInput mouse button 0 down until then
+int                     s_clientWidth = 640, s_clientHeight = 480;
+float                   s_mouseReadX = 0.5f, s_mouseReadY = 0.5f;   // pointer at the last DirectInput read
 
 void copyText(char16_t* target, const char* source, uint32_t maxLength)
 {
@@ -194,6 +213,57 @@ void typeNext(uint64_t now)
     s_typedUs = now;
 }
 
+// Under s_mutex: moves the pointer and turns a rear-panel tap into a click (window messages at the pointer).
+void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
+{
+    const float dt = s_pointerUs ? std::min(float(now - s_pointerUs) * 1e-6f, 0.1f) : 0.0f;
+    s_pointerUs = now;
+    const auto stick = [](float v)
+    {
+        const float a = std::fabs(v);
+        if (a <= PointerDeadZone)
+            return 0.0f;
+        const float t = (a - PointerDeadZone) / (1.0f - PointerDeadZone);
+        return (v < 0.0f ? -t : t) * t;     // squared: fine steps near the centre
+    };
+    s_pointerX += stick(pad.sticks[2]) * PointerSpeed * dt;
+    s_pointerY += stick(pad.sticks[3]) * PointerSpeed * dt * float(s_clientWidth) / float(s_clientHeight);
+    if (pad.rearTouch)
+    {
+        s_pointerX = pad.rearX;
+        s_pointerY = pad.rearY;
+        if (!s_touching)
+        {
+            s_touching = true;
+            s_touchStartUs = now;
+            s_touchStartX = pad.rearX;
+            s_touchStartY = pad.rearY;
+            s_touchSlid = false;
+        }
+        else if (std::fabs(pad.rearX - s_touchStartX) > TapMaxSlide || std::fabs(pad.rearY - s_touchStartY) > TapMaxSlide)
+        {
+            s_touchSlid = true;
+        }
+    }
+    else if (s_touching)
+    {
+        s_touching = false;
+        if (!busy && !s_touchSlid && now - s_touchStartUs <= TapMaxUs)
+        {
+            const x86::reg32 x = x86::reg32(std::lround(s_pointerX * float(s_clientWidth - 1)));
+            const x86::reg32 y = x86::reg32(std::lround(s_pointerY * float(s_clientHeight - 1)));
+            const x86::reg32 at = (y << 16) | (x & 0xffff);
+            const x86::reg32 window = Window::focus();
+            Window::postMessage(window, 0x0200, 0, at);            // WM_MOUSEMOVE
+            Window::postMessage(window, 0x0201, 0x0001, at);       // WM_LBUTTONDOWN, MK_LBUTTON
+            Window::postMessage(window, 0x0202, 0, at);            // WM_LBUTTONUP
+            s_clickUntilUs = now + ClickHoldUs;
+        }
+    }
+    s_pointerX = std::min(std::max(s_pointerX, 0.0f), 1.0f);
+    s_pointerY = std::min(std::max(s_pointerY, 0.0f), 1.0f);
+}
+
 // Under s_mutex. While the on-screen keyboard is up or its text is being typed, and until the buttons held at its end
 // are released (a button that closed the keyboard does not reach the game), the pad holds no keys or buttons. The
 // rear touch halves are not waited for.
@@ -212,6 +282,7 @@ void pump()
     else
         s_releaseWait &= pad.inputs;
     const bool busy = s_imeOpen || !s_typing.empty() || s_releaseWait != 0;
+    updatePointer(pad, now, busy);
     if (!busy && s_field.active && !s_field.shown)
     {
         openIme(true);
@@ -247,6 +318,30 @@ void pump()
     s_state = state;
 }
 
+}
+
+void Gamepad::pointer(int clientWidth, int clientHeight, int* x, int* y)
+{
+    pf::LwLockGuard lock(s_mutex);
+    pump();
+    if (clientWidth > 0 && clientHeight > 0)
+    {
+        s_clientWidth = clientWidth;
+        s_clientHeight = clientHeight;
+    }
+    *x = int(std::lround(s_pointerX * float(s_clientWidth - 1)));
+    *y = int(std::lround(s_pointerY * float(s_clientHeight - 1)));
+}
+
+void Gamepad::mouseState(int* dx, int* dy, bool* button)
+{
+    pf::LwLockGuard lock(s_mutex);
+    pump();
+    *dx = int(std::lround((s_pointerX - s_mouseReadX) * float(s_clientWidth)));
+    *dy = int(std::lround((s_pointerY - s_mouseReadY) * float(s_clientHeight)));
+    s_mouseReadX = s_pointerX;
+    s_mouseReadY = s_pointerY;
+    *button = pf::ticksUs() < s_clickUntilUs;
 }
 
 x86::reg32 Input::getButtonCount() const

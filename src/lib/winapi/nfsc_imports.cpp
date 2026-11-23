@@ -7,6 +7,8 @@
 #include <winapi/ws2_32.h>
 #include "crt.h"
 
+#include <lib/window.h>
+#include <lib/gamepad.h>
 #include <lib/event.h>
 #include <lib/file.h>
 #include <lib/mutex.h>
@@ -356,15 +358,28 @@ int ToUnicode(WinApplication* app, x86::CPU& cpu, UINT wVirtKey, UINT wScanCode,
     return 1;
 }
 
-// No pointer on the Vita: the top left corner.
+// The pad's pointer (Gamepad::pointer: rear touch panel = the screen, right stick, rear tap = click) in screen
+// coordinates of the focus window. Carbon's menus read it at 00731580 (world map, mouse menus).
 BOOL GetCursorPos(WinApplication* app, x86::CPU& cpu, LPPOINT lpPoint)
 {
-    RC_USE(app);
-    RC_USE(cpu);
     if (!lpPoint)
         return 0;
-    lpPoint->x = 0;
-    lpPoint->y = 0;
+    static bool s_logged = false;
+    if (!s_logged)
+    {
+        s_logged = true;
+        pf::logInfo("input: GetCursorPos read (pointer from the rear touch panel and the right stick)");
+    }
+    const HWND window = HWND(Window::focus());
+    RECT client = { 0, 0, 640, 480 };
+    if (window)
+        user32::GetClientRect(app, cpu, window, &client);
+    int x = 0, y = 0;
+    Gamepad::pointer(int(client.right - client.left), int(client.bottom - client.top), &x, &y);
+    lpPoint->x = x;
+    lpPoint->y = y;
+    if (window)
+        user32::ClientToScreen(app, cpu, window, lpPoint);
     return 1;
 }
 

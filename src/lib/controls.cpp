@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <lib/controls.h>
 #include <platform/config.h>
 #include <psp2/ctrl.h>
@@ -255,6 +256,8 @@ PadSample readPad()
 
     PadSample sample;
     sample.inputs = 0;
+    sample.rearTouch = false;
+    sample.rearX = sample.rearY = 0.0f;
     for (const PadButton& button : s_padButtons)
     {
         if (pad.buttons & button.mask)
@@ -271,6 +274,13 @@ PadSample readPad()
         static const Input Quadrants[2][2] = { { RearL2, RearR2 }, { RearL3, RearR3 } };
         for (SceUInt32 i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT; ++i)
             sample.inputs |= bit(Quadrants[touch.report[i].y >= s_panelCentreY][touch.report[i].x >= s_panelCentreX]);
+        if (touch.reportNum > 0)
+        {
+            // The panel reports x 0..1919 and y 108..997 (s_panelCentreY); the pointer maps it onto the screen.
+            sample.rearTouch = true;
+            sample.rearX = std::min(std::max(float(touch.report[0].x) / 1919.0f, 0.0f), 1.0f);
+            sample.rearY = std::min(std::max(float(int(touch.report[0].y) - 108) / 889.0f, 0.0f), 1.0f);
+        }
     }
     applyScript(sample);
     return sample;
