@@ -340,9 +340,10 @@ void simRatePresent(win32::WinApplication* app)
     pf::logInfo("sim_hz: simulation steps at %d Hz (game: 60)", s_hz);
 }
 
-// The open front-end screens (FEng packages): cFEng * at [0xa97a78], package list at +0xe0 (next +4), name (char *)
-// at +0xc (the Mac port's fe_pad.h). They decide where the pad's mouse pointer works: in the front end (game flow
-// [0xa99bbc] = 3) and, while playing, when a map or menu is open; never while driving with only the HUD.
+// The open front-end screens (FEng packages), walked as cFEng::IsPackageInControl 00572350 does: cFEng * at
+// [0xa97a78], engine = [cFEng], first package [engine + 0xd8 + 0xc], next +8, name (char *) +0xc, in control when
+// +0x20 is set. The screen in control decides where the pad's mouse pointer works: in the front end (game flow
+// [0xa99bbc] = 3) and, while playing, when a map or menu is in control; never while driving with only the HUD.
 // Setting fe_log (default on): logs the screens whenever they change.
 bool menuScreen(const std::string& name)
 {
@@ -364,7 +365,9 @@ void feLogPresent(win32::WinApplication* app)
     const x86::reg32 feng = word(0x00a97a78);
     std::string names;
     bool menu = word(0x00a99bbc) == 3;
-    for (x86::reg32 pkg = feng ? word(feng + 0xe0) : 0, n = 0; pkg && n < 32; pkg = word(pkg + 4), ++n)
+    const x86::reg32 engine = feng ? word(feng) : 0;
+    bool controlFound = false;
+    for (x86::reg32 pkg = engine ? word(engine + 0xd8 + 0xc) : 0, n = 0; pkg && n < 32; pkg = word(pkg + 8), ++n)
     {
         const x86::reg32 name = word(pkg + 0xc);
         std::string one;
@@ -375,10 +378,12 @@ void feLogPresent(win32::WinApplication* app)
                 break;
             one += c;
         }
-        menu = menu || menuScreen(one);
+        const bool inControl = !controlFound && word(pkg + 0x20) != 0;
+        controlFound = controlFound || inControl;
+        menu = menu || (inControl && menuScreen(one));
         if (!names.empty())
             names += ' ';
-        names += one;
+        names += inControl ? "*" + one : one;
     }
     win32::Gamepad::setPointerEnabled(menu);
     if (s_on && names != s_last)
