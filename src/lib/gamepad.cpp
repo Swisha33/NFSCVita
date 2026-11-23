@@ -87,6 +87,9 @@ bool                    s_mapScreen = false;        // Gamepad::setMapScreen: a 
 // On a map the pointer stays inside this border; a finger in the border (or the right stick pushing the pointer
 // against it) pushes the left stick that way, which scrolls the map (the user: the left stick and d-pad scroll it).
 const float MapEdge = 0.10f;
+// The rear panel is far wider than tall (1920 x 781): top and bottom get a deeper border and a softer start, else
+// scrolling up / down felt harsh (the user).
+const float MapEdgeY = 0.15f;
 float                   s_edgeX, s_edgeY;           // the left-stick push, -1..1
 
 void copyText(char16_t* target, const char* source, uint32_t maxLength)
@@ -283,33 +286,34 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
     s_edgeX = s_edgeY = 0.0f;
     if (s_mapScreen)
     {
-        const auto edge = [](float v)
+        const auto edge = [](float v, float border)
         {
-            if (v < MapEdge)
-                return -(MapEdge - v) / MapEdge;
-            if (v > 1.0f - MapEdge)
-                return (v - (1.0f - MapEdge)) / MapEdge;
+            if (v < border)
+                return -(border - v) / border;
+            if (v > 1.0f - border)
+                return (v - (1.0f - border)) / border;
             return 0.0f;
         };
         if (pad.rearTouch)
         {
-            s_edgeX = edge(pad.rearX);
-            s_edgeY = edge(pad.rearY);
+            s_edgeX = edge(pad.rearX, MapEdge);
+            s_edgeY = edge(pad.rearY, MapEdgeY);
         }
         else
         {
             const float sx = stick(pad.sticks[2]), sy = stick(pad.sticks[3]);
             if ((s_pointerX <= MapEdge && sx < 0.0f) || (s_pointerX >= 1.0f - MapEdge && sx > 0.0f))
                 s_edgeX = sx;
-            if ((s_pointerY <= MapEdge && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdge && sy > 0.0f))
+            if ((s_pointerY <= MapEdgeY && sy < 0.0f) || (s_pointerY >= 1.0f - MapEdgeY && sy > 0.0f))
                 s_edgeY = sy;
         }
-        // A push that the d-pad threshold of the menus surely sees.
-        const auto firm = [](float v) { return v == 0.0f ? 0.0f : (v < 0.0f ? -1.0f : 1.0f) * std::max(std::fabs(v), 0.6f); };
-        s_edgeX = firm(s_edgeX);
-        s_edgeY = firm(s_edgeY);
+        // A push the menus' stick threshold surely sees, growing towards the panel's edge.
+        const auto firm = [](float v, float least)
+        { return v == 0.0f ? 0.0f : (v < 0.0f ? -1.0f : 1.0f) * (least + (1.0f - least) * std::fabs(v)); };
+        s_edgeX = s_edgeX == 0.0f ? 0.0f : (s_edgeX < 0.0f ? -1.0f : 1.0f) * std::max(std::fabs(s_edgeX), 0.6f);  // as tested
+        s_edgeY = firm(s_edgeY, 0.45f);
         s_pointerX = std::min(std::max(s_pointerX, MapEdge), 1.0f - MapEdge);
-        s_pointerY = std::min(std::max(s_pointerY, MapEdge), 1.0f - MapEdge);
+        s_pointerY = std::min(std::max(s_pointerY, MapEdgeY), 1.0f - MapEdgeY);
     }
     s_pointerX = std::min(std::max(s_pointerX, 0.0f), 1.0f);
     s_pointerY = std::min(std::max(s_pointerY, 0.0f), 1.0f);

@@ -274,7 +274,9 @@ PadSample readPad()
     sample.sticks[3] = stickValue(pad.ry);
 
     SceTouchData touch;
-    if (s_rearTouch && sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) >= 0)
+    memset(&touch, 0, sizeof(touch));
+    const int peeked = s_rearTouch ? sceTouchPeek(SCE_TOUCH_PORT_BACK, &touch, 1) : -1;
+    if (s_rearTouch && peeked >= 0)
     {
         static const Input Quadrants[2][2] = { { RearL2, RearR2 }, { RearL3, RearR3 } };
         for (SceUInt32 i = 0; i < touch.reportNum && i < SCE_TOUCH_MAX_REPORT; ++i)
