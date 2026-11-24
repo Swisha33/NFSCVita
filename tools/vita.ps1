@@ -9,7 +9,8 @@ param(
     [string]$Vita = "",
     [string]$TitleId = "NFSCVITA0",
     [int]$Seconds = 90,
-    [string]$Out = ""
+    [string]$Out = "",
+    [string]$Self = ""   # another build's .self (default build-release-clang)
 )
 $ErrorActionPreference = "Stop"
 # The Vita's address: -Vita, else $env:VITA_IP (set it in tools/env.local.ps1, which git ignores).
@@ -37,7 +38,7 @@ function Send-Command([string]$command) {
 }
 
 function Deploy {
-    $self = Join-Path $root "build-release-clang\NFSCVita.self"
+    $self = if ($Self) { (Resolve-Path $Self).Path } else { Join-Path $root "build-release-clang\NFSCVita.self" }
     if (-not (Test-Path $self)) { throw "missing $self" }
     Send-Command "destroy"
     Start-Sleep -Seconds 2

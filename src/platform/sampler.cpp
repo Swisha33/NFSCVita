@@ -38,6 +38,16 @@ const uint32_t ContextWords = 128;
 const uint32_t Magic = 0x32504d53;     // "SMP2": pc and lr pairs
 const uint32_t WaitingSample = 0xff000000u;     // | the wait type: the thread was not running
 const uint32_t MarkSample = 0xffffffffu;        // followed by the mark's value
+const uint32_t StackSample = 0xfe000000u;       // | k, then a 0 word and k return addresses (padded to even)
+
+// sampler_stack=on: after each running sample, the return addresses found on the thread's stack (words above sp that
+// point into this module's code right after a BL / BLX), scanned while the thread is suspended. ARM code here keeps
+// no frame chain, so stale words can show up; tools/samples_stack.py reads them as inclusive (call tree) counts.
+bool s_stack = false;
+uint32_t s_codeLo = 0, s_codeHi = 0;
+const uint32_t StackScanBytes = 32 * 1024;
+const uint32_t MaxStackWords = 48;
+uint32_t s_stackWords[MaxStackWords];
 
 uint32_t s_samples[MaxSamples];
 std::atomic<uint32_t> s_count{0};
@@ -57,6 +67,7 @@ Thread* s_thread = nullptr;
 std::string s_path;
 FILE* s_file = nullptr;
 uint32_t s_written = 0;     // words in the file
+uint32_t s_total = 0;       // stack mode: words already written before the buffer was reused
 const uint32_t ChunkWords = 8192;
 const uint32_t TablesAtWords = 200000;  // the copy and wait tables are logged after about 100 s of samples
 bool s_tablesLogged = false;
@@ -70,6 +81,13 @@ void writeSamples()
         fwrite(s_samples + s_written, 4, n - s_written, s_file);
         fflush(s_file);
         s_written = n;
+    }
+    // Stack mode: the buffer only stages words for the file (the sampler thread is its only writer).
+    if (s_stack && s_file && s_written == s_count.load(std::memory_order_relaxed))
+    {
+        s_total += s_written;
+        s_count.store(0, std::memory_order_relaxed);
+        s_written = 0;
     }
 }
 
@@ -203,6 +221,38 @@ void findLayout()
 void logCopies();
 void logWaits();
 
+bool isReturnAddress(uint32_t word)
+{
+    const uint32_t a = word & ~1u;
+    if (a - s_codeLo >= s_codeHi - s_codeLo || a - s_codeLo < 4)
+        return false;
+    if (word & 1)   // Thumb: 32-bit BL / BLX immediate, or 16-bit BLX register
+    {
+        const uint16_t* h = reinterpret_cast<const uint16_t*>(uintptr_t(a));
+        const uint16_t hw1 = h[-2], hw2 = h[-1];
+        if ((hw1 & 0xf800) == 0xf000 && ((hw2 & 0xd000) == 0xd000 || (hw2 & 0xd001) == 0xc000))
+            return true;
+        return (hw2 & 0xff87) == 0x4780;
+    }
+    const uint32_t w = reinterpret_cast<const uint32_t*>(uintptr_t(a))[-1];
+    return (w & 0x0f000000) == 0x0b000000 || (w & 0xfe000000) == 0xfa000000 || (w & 0x0ffffff0) == 0x012fff30;
+}
+
+// Return addresses on a suspended thread's stack, innermost first.
+uint32_t scanStack(uint32_t sp, uint32_t stackLo, uint32_t stackSize)
+{
+    uint32_t k = 0;
+    const uint32_t top = stackLo + stackSize;
+    if (sp - stackLo >= stackSize)
+        return 0;
+    const uint32_t end = top - sp > StackScanBytes ? sp + StackScanBytes : top;
+    for (const uint32_t* w = reinterpret_cast<const uint32_t*>(uintptr_t(sp & ~3u));
+         uintptr_t(w) < end && k < MaxStackWords; ++w)
+        if (isReturnAddress(*w))
+            s_stackWords[k++] = *w;
+    return k;
+}
+
 int samplerEntry(void*)
 {
     while (s_run.load(std::memory_order_relaxed))
@@ -240,19 +290,31 @@ int samplerEntry(void*)
             continue;
         }
         const int r = getContext(target, s_cpu, s_vfp);
+        uint32_t k = 0;
+        if (r >= 0 && s_stack && s_layout.sp >= 0)
+            k = scanStack(s_cpu[s_layout.sp], uint32_t(uintptr_t(info.stack)), uint32_t(info.stackSize));
         sceKernelResumeThreadForVM(target);
         const uint32_t n = s_count.load(std::memory_order_relaxed);
+        const uint32_t extra = s_stack ? 2 + ((k + 1) & ~1u) : 0;
         if (r < 0)
             ++s_failures;
-        else if (n + 2 <= MaxSamples)
+        else if (n + 2 + extra <= MaxSamples)
         {
             s_samples[n] = s_cpu[s_pcWord];
             s_samples[n + 1] = s_cpu[s_layout.lr];
-            s_count.store(n + 2, std::memory_order_relaxed);
+            if (s_stack)
+            {
+                s_samples[n + 2] = StackSample | k;
+                s_samples[n + 3] = 0;
+                memcpy(s_samples + n + 4, s_stackWords, k * 4);
+                if (k & 1)
+                    s_samples[n + 4 + k] = 0;
+            }
+            s_count.store(n + 2 + extra, std::memory_order_relaxed);
         }
         if (s_count.load(std::memory_order_relaxed) - s_written >= ChunkWords)
             writeSamples();
-        if (!s_tablesLogged && s_count.load(std::memory_order_relaxed) >= TablesAtWords)
+        if (!s_stack && !s_tablesLogged && s_count.load(std::memory_order_relaxed) >= TablesAtWords)
         {
             s_tablesLogged = true;
             logCopies();
@@ -508,6 +570,40 @@ void start(const char* path)
     writeHeader(0);
     s_run = true;
     s_copying = Config::getBool("sampler_copies", false);
+    s_stack = Config::getBool("sampler_stack", false);
+    if (s_stack)
+    {
+        // This module's code segment: the one holding this function.
+        const uint32_t self = uint32_t(reinterpret_cast<uintptr_t>(&start));
+        SceUID modules[64];
+        SceSize count = 64;
+        if (sceKernelGetModuleList(0xff, modules, &count) >= 0)
+            for (SceSize m = 0; m < count && !s_codeHi; ++m)
+            {
+                SceKernelModuleInfo info;
+                memset(&info, 0, sizeof(info));
+                info.size = sizeof(info);
+                if (sceKernelGetModuleInfo(modules[m], &info) < 0)
+                    continue;
+                for (const SceKernelSegmentInfo& segment : info.segments)
+                {
+                    const uint32_t lo = uint32_t(uintptr_t(segment.vaddr));
+                    if (segment.memsz && self - lo < segment.memsz)
+                    {
+                        s_codeLo = lo;
+                        s_codeHi = lo + segment.memsz;
+                    }
+                }
+            }
+        if (!s_codeHi || s_layout.sp < 0)
+        {
+            logError("sampler: sampler_stack needs the code segment and the sp word; off");
+            s_stack = false;
+        }
+        else
+            logInfo("sampler: stack scan on, code 0x%08x-0x%08x, sp word %d", unsigned(s_codeLo), unsigned(s_codeHi),
+                    s_layout.sp);
+    }
     s_thread = new Thread("sampler", &samplerEntry, nullptr, Thread::PriorityHigh, 16 * 1024,
                           cores::hasCore3() ? Thread::Cpu3 : Thread::Cpu2);
     s_thread->start();
@@ -545,13 +641,13 @@ void stop()
     s_thread->join();
     delete s_thread;
     s_thread = nullptr;
-    if (!s_tablesLogged)
+    if (!s_tablesLogged && !s_stack)
     {
         logCopies();
         logWaits();
     }
     writeSamples();
-    const uint32_t n = s_count.load();
+    const uint32_t n = s_total + s_count.load();
     writeHeader(n / 2);
     fclose(s_file);
     s_file = nullptr;

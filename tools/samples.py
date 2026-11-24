@@ -74,8 +74,13 @@ def main():
     waits = collections.Counter()
     total = running = 0
     mark = 0
-    for i in range(0, len(words) - 1, 2):
+    i = -2
+    while i + 3 < len(words):
+        i += 2
         pc, lr = words[i], words[i + 1]
+        if pc >> 24 == 0xfe:            # sampler_stack record: skip its return addresses (samples_stack.py reads them)
+            i += ((pc & 0xffffff) + 1) & ~1
+            continue
         if pc == 0xffffffff:
             mark = lr
             continue

@@ -1058,6 +1058,56 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       resource-file completion 0055fb41 skips the loaded callback when [ebx+3] is set; 007d7440 (preview) queues
       007e6ef0 -> 007e6e00 (waits for 0xb76860 state 0/2, then 007e4bb0 starts the next car load).
       New: file_log=on logs every open and read.
+   351-353 (2026-11-23, user away: "frames drop with other cars, crashes and when the city is in sight").
+      **Call-tree profile of slow vs fast frames.**
+      - Other ports checked (GitHub, 2026-11-23): NFSUG2_VITA 0.8.5 (unload fences, PGO re-recorded; perf ideas:
+        d3d fast layer, optimised_particles, audio_mixer_split), UG1VITA 1.0.1 (Underground-only natives: physics,
+        GJK, AI, car render; half-precision shaders), Mac port (HD reflections), Android 0.1.13 (core affinity).
+      - New: sampler_stack=on (src/platform/sampler.cpp) stores, per sample, the return addresses on the game thread's
+        stack (words above sp right after a BL/BLX into this module); sampler_frame_marks=on marks every Present with
+        the frame's length. tools/samples_stack.py keeps only verified chains (each return address's BL must call the
+        function of the frame below; indirect calls and thunks accepted) and prints inclusive ms per frame for all,
+        fast (<= 42 ms) and slow (>= 55 ms) frames.
+      - Run 351 baseline 20.7 fps (g_WorldLodLevel 0, g_CarLodLevel 0 already: the Low preset). Run 352 (2 ms
+        samples, 3300 frames): mean 47 ms; fast 36 ms, slow 68 ms. Inclusive per frame (fast / slow): frame render
+        00699230 18.4 / 28.4 (main view 0072e5b0 13.6 / 22.4, mesh submit 00727230 9.2 / 16.3); simulation (message
+        dispatch 005612c0 -> 00760d30 / 00767870) 5.9 / 10.8 (more fixed 1/60 s steps in a long frame, flat inside);
+        streaming callbacks (006b68d0 -> track bundle 007a2a80 -> section load 006ad8f0) 0.1 / 8.5: the hitches when
+        new city sections arrive. Inside the section load ~half is 0046cec0 (QueryPerformanceCounter -> ticks), called
+        per resource.
+      - By leaf: translated guest code 61 %, our d3d9/effect layer 23 % (applyPass 3.1, carbonBlockStore 1.9,
+        Device::draw 1.7, applyFamily 1.4, lookup 1.4, D3DXMatrixMultiply 1.1, setMatrices 1.0), system libraries
+        5.9 % (76 % of it sceClibMemcpy in Buffer::Unlock: vertex-buffer uploads), QueryPerformanceCounter + its
+        import thunk 1.6 % (~1000 reads per frame at 678 ns: the wide process clock).
+      - debug_buffer_copies=on (run 353): busy dynamic buffers re-created on unlock: all D3DLOCK_DISCARD (0x2000,
+        0x2800), 180664 / 192288 / 23056 bytes, locked almost whole, 5-50 MB per 10 s.
+      - Fix: pf::ticksUs reads the clock's low word (376 ns) and extends it with the latest high word.
+   354-362 (2026-11-23/24). **PGO and the quad-buffer upload: 20.5 -> 23.4 fps.**
+      - PGO for the whole program (tools/build.ps1 -PgoGenerate, then -PgoUse; Carbon's main already starts
+        pf::pgo). The fully instrumented build (21.8 MB self, ~10 fps) runs out of guest memory at the first race load
+        (run 354: 95 MB streaming pool vs 83 MB largest range); profile runs use stream_track_kb=32000. Profiles
+        (work/, not in git: derived from the game): 355 free roam AI drive 420 s, 361 boot race with 3 opponents and
+        boot_traffic=1.0 450 s, 362 front end (title, garage, memory card list). Instrumented build 57 min, -PgoUse
+        build 22 min. Runs 357 / 358 (profile 355 only): 22.5 / 23.0 fps vs 20.2-20.7 (runs 351, 353, 356), min
+        15.5 -> 17: about +10 %.
+      - Quad buffers: the two 180664-byte dynamic vertex buffers at 0xaaf558 (1024 quads of 4 x 0x2c bytes, made by
+        00710ba0, locked DISCARD|NOSYSLOCK each frame by 00710cc0, quads appended at the cursor [0xaaf58c + 4i] by
+        00710dd0) were uploaded whole on every unlock. Buffer::setUnlockExtent (d3d9_resources.cpp) lets the game
+        side report the bytes written in a DISCARD lock; src/nfsc/main.cpp quadBufferExtent reads the cursor
+        (setting quad_upload_extent, default on). A busy buffer re-created for a DISCARD lock now copies only the
+        locked range (the rest is undefined in D3D9). Uploads in place 74-98 MB -> 20-23 MB per 10 s (runs 356 / 359);
+        the quad buffers now 22-30 KB per unlock. Runs 359 / 360: 23.1 / 23.7 fps (PGO + extent).
+      - Note for traffic: boot_traffic 0.3 (benchmark default) is light; career free roam runs at 1.0 (see main.cpp).
+      - Merged profile work/pgo_merged1.profdata (355 + 361 + 362): runs 363 23.5, 364 17.0 (one 3.6 s stall, below),
+        365 (boot_traffic=1.0, screenshots: flares, tyre smoke, HUD right) 22.7, 366 (traffic 1.0, sampler on the
+        audio thread) 23.2 fps. Release builds: -PgoUse work/pgo_merged1.profdata (output build-release-clangpgo;
+        tools/vita.ps1 -Self picks a build's .self). Re-record after regenerating the guest code.
+      - Open: intermittent stalls from the SND lock 0x00bc9a50 held long by the EA audio thread (thread 9): max hold
+        852 ms in run 364, 239-279 ms in runs 334 / 335 / 351 (before today's changes), ~50 ms in most runs. Run 366
+        (sampler_thread=audio, sampler_stack, sampler_mark_section=bc9a50): a 131 ms hold = thread 9 in 008cd648 ->
+        bank runner 008cd5da, then 10 ms waiting on a mutex (0x109fd, type 0x40) and 111 ms on an LwMutex
+        (0x104c1, type 0x100). Bank code ran all native (0 interpreted), so not the interpreter's execution lock.
+        Next: name 0x104c1 (log the LwMutex ids at creation) and see who holds it.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

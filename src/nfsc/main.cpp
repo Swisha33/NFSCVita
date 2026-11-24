@@ -22,6 +22,7 @@
 #include <nfsc.h>
 #include "bankcode.h"
 #include <nfsc_layout.h>
+#include <winapi/d3d9_internal.h>
 #include <winapi/d3d9_native.h>
 #include <winapi/kernel32.h>
 #include <winapi/msvcr71.h>
@@ -453,9 +454,46 @@ void textEntryPresent(win32::WinApplication* app, const std::string& screen)
     pf::logInfo("fe: text entry on %s, at most %u characters, text \"%s\"", screen.c_str(), unsigned(maxLength), text);
 }
 
+// Carbon's quad buffers (particles, light flares, HUD-style quads): the object at 0xaaf558 holds two dynamic vertex
+// buffers of 1024 quads (180664 bytes: (1024 * 4 + 10) vertices of 0x2c bytes, made by 00710ba0), locked every frame
+// with D3DLOCK_DISCARD | NOSYSLOCK (00710cc0: data pointer at +0x34 + 4i, the write cursor). 00710dd0 appends a quad
+// at the cursor; the unlocks (00710d10, 00710d40, 007262c0) run before the cursor is cleared. Unlock uploads only
+// the bytes below the cursor instead of all 180 KB (debug_buffer_copies, run 353: the largest buffer upload).
+// Setting quad_upload_extent (default on).
+uint32_t quadBufferExtent(x86::reg32 buffer, x86::reg32 data, win32::UINT size)
+{
+    const x86::reg32 Quads = 0x00aaf558, Cursors = 0x00aaf58c;
+    for (x86::reg32 i = 0; i < 2; ++i)
+    {
+        if (rc::ld32(Quads + 4 * i) != buffer)
+            continue;
+        const x86::reg32 cursor = rc::ld32(Cursors + 4 * i);
+        if (cursor < data || cursor - data > size)
+            return 0xffffffffu;
+        return (cursor - data + 3) & ~3u;
+    }
+    return 0xffffffffu;
+}
+
+// Setting sampler_frame_marks (with sampler=on): a sampler mark per Present, 0x80000000 | (frame & 0x7fff) << 8 | the
+// frame's length in ms (at most 255), so tools/samples_stack.py can split the profile into slow and fast frames.
+void frameMarkPresent()
+{
+    static const bool s_on = pf::Config::getBool("sampler_frame_marks", false);
+    static uint64_t s_last = 0;
+    static uint32_t s_frame = 0;
+    if (!s_on)
+        return;
+    const uint64_t now = sceKernelGetProcessTimeWide();
+    const uint32_t ms = s_last ? uint32_t(std::min<uint64_t>((now - s_last) / 1000, 255)) : 255;
+    s_last = now;
+    pf::sampler::mark(0x80000000u | ((++s_frame & 0x7fff) << 8) | ms);
+}
+
 // Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, sim_hz, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
+    frameMarkPresent();
     nfsc::padPresent(app, cpu);
     carReflectionPresent(app);
     poolFillPresent(app);
@@ -519,6 +557,8 @@ int main(int, char**)
     // Setting sampler=on: the game thread's pc about every sampler_interval_us into samples.bin (NFSUG2_VITA's
     // profiler; needs CapUnlocker), read with tools/samples.py.
     pf::sampler::start(dataPath("samples.bin").c_str());
+    if (pf::Config::getBool("quad_upload_extent", true))
+        win32::d3d9::Buffer::setUnlockExtent(&quadBufferExtent);
 #ifdef NFSU_PGO_GENERATE
     // Instrumented build (tools/build.ps1 -PgoGenerate): the profile counters go to nfsu.profraw every 30 s.
     pf::pgo::start(dataPath(pf::pgo::FileName).c_str());

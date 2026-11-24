@@ -893,9 +893,66 @@ x86::reg32 Buffer::shadowAddress() const
 
 static Buffer::UnlockObserver s_unlockObserver = nullptr;
 
+// Setting debug_buffer_copies=on: every 10 s, the unlocks of busy buffers that copy the whole buffer into a fresh one,
+// by buffer size, locked size and flags (the five with the most bytes).
+static void unlockStats(UINT size, UINT lockSize, DWORD flags, DWORD usage)
+{
+    static const bool s_on = pf::Config::getBool("debug_buffer_copies", false);
+    if (!s_on)
+        return;
+    // size 0: an in-place unlock (lockSize bytes copied into the current GPU copy), counted apart.
+    static uint64_t s_inPlaceBytes = 0;
+    static uint32_t s_inPlace = 0;
+    if (!size)
+    {
+        s_inPlaceBytes += lockSize;
+        ++s_inPlace;
+        return;
+    }
+    struct Row { UINT size, lockSize; DWORD flags, usage; uint32_t count; uint64_t bytes; };
+    static Row s_rows[64];
+    static uint32_t s_used = 0;
+    static uint64_t s_since = sceKernelGetProcessTimeWide();
+    uint32_t k = 0;
+    while (k < s_used && !(s_rows[k].size == size && s_rows[k].lockSize == lockSize && s_rows[k].flags == flags))
+        ++k;
+    if (k == s_used && s_used < 64)
+        s_rows[s_used++] = Row{size, lockSize, flags, usage, 0, 0};
+    if (k < s_used)
+    {
+        ++s_rows[k].count;
+        s_rows[k].bytes += (flags & D3DLOCK_DISCARD) ? lockSize : size;
+    }
+    const uint64_t now = sceKernelGetProcessTimeWide();
+    if (now - s_since < 10000000)
+        return;
+    s_since = now;
+    std::sort(s_rows, s_rows + s_used, [](const Row& a, const Row& b) { return a.bytes > b.bytes; });
+    uint64_t total = 0;
+    for (uint32_t i = 0; i < s_used; ++i)
+        total += s_rows[i].bytes;
+    pf::logInfo("d3d9: in-place unlocks (10 s): %u, %llu KB", unsigned(s_inPlace), (unsigned long long)(s_inPlaceBytes / 1024));
+    s_inPlace = 0;
+    s_inPlaceBytes = 0;
+    pf::logInfo("d3d9: busy-buffer copies (10 s): %llu KB; top: %u B lock %u flags 0x%x usage 0x%x x%u, %u B lock %u "
+                "flags 0x%x usage 0x%x x%u, %u B lock %u flags 0x%x usage 0x%x x%u", (unsigned long long)(total / 1024),
+                s_rows[0].size, s_rows[0].lockSize, unsigned(s_rows[0].flags), unsigned(s_rows[0].usage),
+                unsigned(s_rows[0].count), s_rows[1].size, s_rows[1].lockSize, unsigned(s_rows[1].flags),
+                unsigned(s_rows[1].usage), unsigned(s_rows[1].count), s_rows[2].size, s_rows[2].lockSize,
+                unsigned(s_rows[2].flags), unsigned(s_rows[2].usage), unsigned(s_rows[2].count));
+    s_used = 0;
+}
+
 void Buffer::setUnlockObserver(UnlockObserver observer)
 {
     s_unlockObserver = observer;
+}
+
+static Buffer::UnlockExtent s_unlockExtent = nullptr;
+
+void Buffer::setUnlockExtent(UnlockExtent extent)
+{
+    s_unlockExtent = extent;
 }
 
 HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
@@ -913,18 +970,31 @@ HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
     if (m_lockFlags & D3DLOCK_READONLY)
         return D3D_OK;
     const uint8_t* shadow = host(m_shadow->getBlockStart());
+    const bool discard = (m_lockFlags & D3DLOCK_DISCARD) != 0;
+    if (discard && s_unlockExtent && m_lockOffset == 0)
+    {
+        const uint32_t written = s_unlockExtent(guest(), m_shadow->getBlockStart(), m_lockSize);
+        if (written <= m_lockSize)
+            m_lockSize = written;
+    }
     if (!(m_lockFlags & D3DLOCK_NOOVERWRITE) && gpu().busy(*m_storage))
     {
-        // Frames in flight read the current copy: a new one with every byte the guest has written.
+        unlockStats(m_size, m_lockSize, m_lockFlags, m_usage);
+        // Frames in flight read the current copy: a new one with every byte the guest has written (with
+        // D3DLOCK_DISCARD only the locked range: the rest of a discarded buffer is undefined).
         render::BufferStorage* fresh = gpu().createBuffer(m_size);
         if (fresh)
         {
-            memcpy(fresh->data, shadow, m_size);
+            if (discard)
+                memcpy(static_cast<uint8_t*>(fresh->data) + m_lockOffset, shadow + m_lockOffset, m_lockSize);
+            else
+                memcpy(fresh->data, shadow, m_size);
             gpu().release(m_storage);
             m_storage = fresh;
             return D3D_OK;
         }
     }
+    unlockStats(0, m_lockSize, m_lockFlags, m_usage);
     memcpy(static_cast<uint8_t*>(m_storage->data) + m_lockOffset, shadow + m_lockOffset, m_lockSize);
     m_storage->writes.fetch_add(1, std::memory_order_release);
     return D3D_OK;
