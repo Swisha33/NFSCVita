@@ -1,5 +1,7 @@
 #include <lib/winapp.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/kernel/threadmgr/eventflag.h>
 #include <algorithm>
 #include <string>
 #include <lib/file.h>
@@ -184,14 +186,71 @@ static void logGuestStack(const char* who, const x86::CPU* cpu)
     pf::logInfo("%s", line);
 }
 
+static std::atomic<int> s_mainThread{0};
+
+// Setting hitch_probe_ms=N (default 0: off): when a frame takes longer than N ms, logs once per such frame what the
+// main thread waits on (kernel wait type and object, named where the kernel knows it), whether the execution lock is
+// held, and the guest return addresses on the main thread's stack. Checked every 50 ms.
+static void probeHitch(const x86::CPU* mainCpu, uint64_t idle, uint32_t thresholdMs, bool& reported)
+{
+    if (idle < uint64_t(thresholdMs) * 1000)
+    {
+        reported = false;
+        return;
+    }
+    if (reported)
+        return;
+    reported = true;
+    SceKernelThreadInfo info;
+    info.size = sizeof(info);
+    const int thread = s_mainThread.load(std::memory_order_relaxed);
+    if (!thread || sceKernelGetThreadInfo(thread, &info) < 0)
+        return;
+    char name[32] = "?";
+    SceKernelMutexInfo mutex;
+    mutex.size = sizeof(mutex);
+    SceKernelSemaInfo sema;
+    sema.size = sizeof(sema);
+    SceKernelEventFlagInfo flag;
+    flag.size = sizeof(flag);
+    const char* lw = pf::LwMutex::nameOf(uint32_t(info.waitId));
+    if (lw)
+        snprintf(name, sizeof(name), "lw %s", lw);
+    else if (sceKernelGetMutexInfo(info.waitId, &mutex) >= 0)
+        memcpy(name, mutex.name, sizeof(name));
+    else if (sceKernelGetSemaInfo(info.waitId, &sema) >= 0)
+        memcpy(name, sema.name, sizeof(name));
+    else if (sceKernelGetEventFlagInfo(info.waitId, &flag) >= 0)
+        memcpy(name, flag.name, sizeof(name));
+    name[31] = 0;
+    const x86::CPU* holder = s_holderCpu.load(std::memory_order_relaxed);
+    pf::logInfo("hitch: frame over %u ms: main thread status 0x%x wait type 0x%x on 0x%08x %s, execution lock %s",
+                unsigned(idle / 1000), unsigned(info.status), unsigned(info.waitType), unsigned(info.waitId), name,
+                !s_lockHeld.load(std::memory_order_relaxed) ? "free" : holder == mainCpu ? "held by main" : "held");
+    logGuestStack("hitch main thread", mainCpu);
+    if (holder && holder != mainCpu)
+        logGuestStack("hitch lock holder", holder);
+}
+
 static int watchdogRun(void* argument)
 {
     const x86::CPU* mainCpu = static_cast<const x86::CPU*>(argument);
-    bool stalled = false;
-    pf::logInfo("stall: watchdog started");
+    bool stalled = false, hitchReported = false;
+    const uint32_t hitchMs = uint32_t(std::max(0, pf::Config::getInt("hitch_probe_ms", 0)));
+    pf::logInfo("stall: watchdog started%s", hitchMs ? " (hitch probe on)" : "");
     for (unsigned tick = 1;; ++tick)
     {
-        pf::sleepMs(2000);
+        if (hitchMs)
+        {
+            for (int k = 0; k < 40; ++k)
+            {
+                pf::sleepMs(50);
+                probeHitch(mainCpu, pf::ticksUs() - s_lastFrameUs.load(std::memory_order_relaxed), hitchMs,
+                           hitchReported);
+            }
+        }
+        else
+            pf::sleepMs(2000);
         // Keeps the Vita from dimming, turning the screen off or suspending while nobody presses a button (a game
         // driven by auto_input, a long loading screen). Without it, runs 106-123 froze in file I/O ~20 s after the
         // start once the user had been away for a while.
@@ -265,6 +324,7 @@ void WinApplication::noteFrame()
     s_lastFrameUs.store(pf::ticksUs(), std::memory_order_relaxed);
     if (!s_watchdog)
     {
+        s_mainThread.store(sceKernelGetThreadId(), std::memory_order_relaxed);
         // Guest memory exhausted: the allocating thread holds the execution lock, its stack names the caller.
         // Direct calls leave no return address there (run 34 showed only SEH handlers), so the registers and the raw
         // words go into the log too: arguments and saved registers identify the frame.

@@ -30,7 +30,7 @@ const char* const Known[] =
     // Sampling profiler (src/platform/sampler.cpp, from NFSUG2_VITA).
     "sampler", "sampler_interval_us", "sampler_thread", "sampler_copies",
     // Cores, logs and the benchmark.
-    "use_core3", "core3_tasks", "timing_log", "timing_phases", "hitch_log", "console_log",
+    "use_core3", "core3_tasks", "timing_log", "timing_phases", "hitch_log", "hitch_probe_ms", "console_log",
     "benchmark", "benchmark_exit", "benchmark_seconds", "benchmark_laps", "benchmark_opponents", "benchmark_track",
     "benchmark_timing_log", "benchmark_mode", "benchmark_car", "benchmark_driver",
     // Renderer.

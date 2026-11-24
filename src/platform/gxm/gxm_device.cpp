@@ -4,6 +4,7 @@
 #include <platform/ime.h>
 #include <platform/log.h>
 #include <platform/perf.h>
+#include <platform/sampler.h>
 #include <platform/sync.h>
 #include "gxm_render.h"
 #include <psp2/gxm.h>
@@ -616,6 +617,9 @@ int Device::Impl::threadEntry(void* self)
 {
     if (perf::enabled())
         perf::trackThread("render");
+    // sampler=on, sampler_thread=render: profile this thread instead of the game thread.
+    if (Config::getBool("sampler", false) && strcmp(Config::getString("sampler_thread", "game"), "render") == 0)
+        sampler::retarget(sceKernelGetThreadId());
     static_cast<Impl*>(self)->run();
     return 0;
 }

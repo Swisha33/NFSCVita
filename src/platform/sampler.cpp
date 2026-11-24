@@ -25,6 +25,7 @@ extern "C"
 int sceKernelSuspendThreadForVM(SceUID thid);
 int sceKernelResumeThreadForVM(SceUID thid);
 int sceKernelGetThreadContextForVM(SceUID thid, void* cpuRegisters, void* vfpRegisters);
+int sceKernelGetCondInfo(SceUID cond, SceKernelCondInfo* info);   // in the stub, not in the headers
 }
 
 namespace pf { namespace sampler
@@ -250,6 +251,10 @@ void logStackWaits()
         mutex.size = sizeof(mutex);
         SceKernelSemaInfo sema;
         sema.size = sizeof(sema);
+        SceKernelCondInfo cond;
+        cond.size = sizeof(cond);
+        SceKernelEventFlagInfo flag;
+        flag.size = sizeof(flag);
         const char* lw = LwMutex::nameOf(w.id);
         if (lw)
             snprintf(name, sizeof(name), "lw %s", lw);
@@ -257,6 +262,10 @@ void logStackWaits()
             memcpy(name, mutex.name, sizeof(name));
         else if (sceKernelGetSemaInfo(SceUID(w.id), &sema) >= 0)
             memcpy(name, sema.name, sizeof(name));
+        else if (sceKernelGetCondInfo(SceUID(w.id), &cond) >= 0)
+            memcpy(name, cond.name, sizeof(name));
+        else if (sceKernelGetEventFlagInfo(SceUID(w.id), &flag) >= 0)
+            memcpy(name, flag.name, sizeof(name));
         name[31] = 0;
         logInfo("sampler: waits on 0x%08x %s (type 0x%x): %u samples", unsigned(w.id), name, unsigned(w.type),
                 unsigned(w.count));
