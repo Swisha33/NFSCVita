@@ -851,8 +851,11 @@ win32::MethodPtr resolve(x86::reg32 address)
 
 }
 
+win32::WinApplication* g_bankApp = nullptr;
+
 void install(win32::WinApplication& app)
 {
+    g_bankApp = &app;
     s_native = pf::Config::getBool("bank_native", true);
     s_unlocked = pf::Config::getBool("bank_unlocked", true);
     win32::setForeignCodeResolver(&resolve);

@@ -625,7 +625,8 @@ void carbonBlockStore(Device* device, uint16_t id, CarbonSlot slot, const float*
 // by d3dx9_fx.cpp, is above 0) and the setting headlights is on.
 static bool carbonHeadlight(const float* own)
 {
-    static const bool enabled = pf::Config::getBool("headlights", true);
+    static pf::LazyBool enabled_setting;
+    const bool enabled = enabled_setting.get("headlights", true);
     return enabled && own[s_offsets[PHeadlightWVP]] > 0.0f;
 }
 
@@ -922,7 +923,8 @@ bool effectCarDiffuseAlpha(const EffectDraw& effect, const float* own, const flo
 
 void effectFragmentConstants(const EffectDraw& effect, const float* own, const float* shared, float* out)
 {
-    static const float debug = pf::Config::getBool("debug_carbon_colors", false) ? 1.0f : 0.0f;
+    static pf::LazyBool debug_setting;
+    const float debug = debug_setting.get("debug_carbon_colors", false) ? 1.0f : 0.0f;
     if (effect.kind == EffectKindCarbonScreen)
     {
         render::CScreenFragmentConstants& c = *reinterpret_cast<render::CScreenFragmentConstants*>(out);

@@ -64,7 +64,8 @@ inline void popReturn(x86::CPU& cpu, reg32 popped)
 // Setting native_math=off runs the translated bodies instead of the native versions (to rule them out).
 bool nativeOff()
 {
-    static const bool off = !pf::Config::getBool("native_math", true);
+    static pf::LazyBool off_setting;
+    const bool off = !off_setting.get("native_math", true);
     return off;
 }
 
@@ -148,12 +149,14 @@ void checked(win32::WinApplication* app, x86::CPU& cpu, int& left, reg32 popped,
 // identical to the guest in 300 checks), 0.5 19.9 (603 draws vs 681), 0.35 19.5 (runs 223-225); no visible gaps.
 float sceneryScale()
 {
-    static const float scale = [] {
+    static float s_scale = 0.0f;   // 0: not read yet (a plain static: no guard check per call)
+    if (s_scale == 0.0f)
+    {
         const char* text = pf::Config::getString("scenery_scale", "0.5");
         const float v = float(atof(text));
-        return v > 0.0f && v <= 4.0f ? v : 1.0f;
-    }();
-    return scale;
+        s_scale = v > 0.0f && v <= 4.0f ? v : 1.0f;
+    }
+    return s_scale;
 }
 
 void sizeNative(win32::WinApplication*, x86::CPU& cpu)

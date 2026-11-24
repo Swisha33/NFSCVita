@@ -318,7 +318,8 @@ enum FxFamily : uint8_t
 
 FxFamily familyOf(const std::string& name)
 {
-    static const bool enabled = pf::Config::getBool("carbon_shaders", true);
+    static pf::LazyBool enabled_setting;
+    const bool enabled = enabled_setting.get("carbon_shaders", true);
     if (!enabled)
         return FamilyNone;
     static const char* const world[] = { "IDI_WORLD_FX", "IDI_WORLDNORMALMAP_FX", "IDI_GLASSREFLECTSHADER_FX",
@@ -1329,7 +1330,8 @@ reg32 SetTechnique(FxEffect& fx, const x86::CPU& cpu)
     // colour weights), which cucap_v / world_f would show as a rainbow atlas (run 247); technique 2 ("main_1_1", the
     // PC's lowest) binds the plain face texture (HEIGHTMAP) to stage 0 and draws it: the pass states of that
     // technique are applied instead. Setting ucap_technique (default 2; -1 keeps the game's choice).
-    static const int ucap = pf::Config::getInt("ucap_technique", 2);
+    static pf::LazyInt ucap_setting;
+    const int ucap = ucap_setting.get("ucap_technique", 2);
     if (fx.family() == FamilyUcap && ucap >= 0 && uint32_t(ucap) < fx.m_techniques.size())
         fx.m_technique = uint32_t(ucap);
     return D3D_OK;
@@ -1515,7 +1517,8 @@ void applyFamily(FxEffect& fx, Device& device)
     }
     // IDI_SKY_FX technique 0 (vs_3_0 / ps_3_0, what the PC uses: work/pctrace): its own programs; technique 1
     // (vs_1_1) stays in the world family below.
-    static const bool carbonSky = pf::Config::getBool("carbon_sky", true);
+    static pf::LazyBool carbonSky_setting;
+    const bool carbonSky = carbonSky_setting.get("carbon_sky", true);
     const FxName kind = fx.nameKind();
     fx.m_skyProcedural = kind == FxNameSky && fx.m_technique == 0 && carbonSky;
     if (fx.m_skyProcedural)
@@ -1673,7 +1676,8 @@ void applyFamily(FxEffect& fx, Device& device)
     }
     // Setting debug_texoffset (diagnostic): every 2000 world commits, how many had a nonzero cvTextureOffset and
     // the last such value with its effect / technique (sliding road and building textures after a camera change).
-    static const bool s_debugOffset = pf::Config::getBool("debug_texoffset", false);
+    static pf::LazyBool s_debugOffset_setting;
+    const bool s_debugOffset = s_debugOffset_setting.get("debug_texoffset", false);
     if (s_debugOffset)
     {
         static uint32_t s_commits = 0, s_nonzero = 0;
@@ -1723,7 +1727,8 @@ void applyFamily(FxEffect& fx, Device& device)
         fx.floatsOf("headlight_colour_scale", headlight, 4);
         carbonBlockStore(d, id, CarbonHeadlightWvp, headlightWvp, 16);
         static uint32_t s_commits = 0;
-        static const uint32_t s_every = uint32_t(pf::Config::getInt("debug_headlight", 0));
+        static pf::LazyInt s_every_setting;
+        const uint32_t s_every = uint32_t(s_every_setting.get("debug_headlight", 0));
         if (s_commits++ == 0 || (s_every && s_commits % s_every == 0))
             pf::logInfo("d3dx9: headlight (%s t%u): colour scale %g, projection row 0 (%.3f %.3f %.3f %.3f)",
                         fx.name().c_str(), unsigned(fx.m_technique), double(headlight[0]), double(headlightWvp[0]),
@@ -1749,7 +1754,8 @@ void applyPass(FxEffect& fx, const x86::CPU& constCpu, bool full)
     FxPass& pass = technique.passes[fx.m_pass];
     Device& device = *static_cast<Device*>(fx.device());
     x86::CPU& cpu = const_cast<x86::CPU&>(constCpu);
-    static const bool s_commitCache = pf::Config::getBool("fx_commit_cache", true);
+    static pf::LazyBool s_commitCache_setting;
+    const bool s_commitCache = s_commitCache_setting.get("fx_commit_cache", true);
     if (!full && pass.samplersParsed && s_fxCommitLight && s_commitCache)
     {
         if (!pass.commitCached)

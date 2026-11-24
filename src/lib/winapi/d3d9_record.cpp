@@ -302,7 +302,8 @@ bool Resolver::fillState(render::Frame& f, const DrawRecord& record, render::Dra
         {
             // Carbon: the pass set the render states on the device (d3dx9_fx.cpp applyPass).
             // debug_carbon_colors: no depth test or culling, to see whether those hide the geometry.
-            static const bool debugColors = pf::Config::getBool("debug_carbon_colors", false);
+            static pf::LazyBool debugColors_setting;
+            const bool debugColors = debugColors_setting.get("debug_carbon_colors", false);
             if (debugColors)
             {
                 state.depthEnable = 0;
@@ -367,7 +368,8 @@ bool Resolver::fillState(render::Frame& f, const DrawRecord& record, render::Dra
     float test[2] = { 0.0f, 0.0f };
     state.alphaTest = alphaEnabled && alphaTest(rs[D3DRS_ALPHAFUNC], alphaRef, test) ? 1 : 0;
     // A test that discards nothing: the program without it (the draw becomes opaque to the GPU).
-    static const bool s_elide = pf::Config::getBool("skip_unused_alpha_test", true);
+    static pf::LazyBool s_elide_setting;
+    const bool s_elide = s_elide_setting.get("skip_unused_alpha_test", true);
     if (state.alphaTest && (s_elide || pf::perf::enabled()))
     {
         const AlphaResult result = alphaTestResult(record, draw, test, own, shared);

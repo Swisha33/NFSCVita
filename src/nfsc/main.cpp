@@ -253,7 +253,8 @@ void pokePresent(win32::WinApplication* app)
 // light from the surroundings: off, cars were lit bright and flat in dark streets (user report, run 217 shots).
 void carReflectionPresent(win32::WinApplication* app)
 {
-    static const bool s_off = !pf::Config::getBool("car_reflections", true);
+    static pf::LazyBool s_off_setting;
+    const bool s_off = !s_off_setting.get("car_reflections", true);
     if (s_off)
         app->getMemory<x86::reg32>(0x00a65340) = 0;
 }
@@ -264,7 +265,8 @@ void carReflectionPresent(win32::WinApplication* app)
 // audio_pool_kb (guest memory for the city section's 74 MB load buffer, run 253).
 void poolLogPresent(win32::WinApplication* app)
 {
-    static const uint64_t s_every = uint64_t(std::max(0, pf::Config::getInt("pool_log", 0))) * 1000000u;
+    static pf::LazyInt s_every_setting;
+    const uint64_t s_every = uint64_t(std::max(0, s_every_setting.get("pool_log", 0))) * 1000000u;
     static uint64_t s_next = 0;
     if (!s_every)
         return;
@@ -312,7 +314,8 @@ void poolLogPresent(win32::WinApplication* app)
 // byte in every pool at each Present (pools made later get it cleared at the next one).
 void poolFillPresent(win32::WinApplication* app)
 {
-    static const bool s_fill = pf::Config::getBool("pool_fill", true);
+    static pf::LazyBool s_fill_setting;
+    const bool s_fill = s_fill_setting.get("pool_fill", true);
     if (s_fill)
         return;
     for (x86::reg32 n = 0; n < 16; ++n)
@@ -329,7 +332,8 @@ void poolFillPresent(win32::WinApplication* app)
 // each). Run 326 (30 Hz via debug_poke): 21.0 fps vs 18.1-19.5, normal game speed (user).
 void simRatePresent(win32::WinApplication* app)
 {
-    static const int s_hz = pf::Config::getInt("sim_hz", 60);
+    static pf::LazyInt s_hz_setting;
+    const int s_hz = s_hz_setting.get("sim_hz", 60);
     static bool s_done = false;
     if (s_done)
         return;
@@ -364,7 +368,8 @@ bool menuScreen(const std::string& name)
 
 void feLogPresent(win32::WinApplication* app)
 {
-    static const bool s_on = pf::Config::getBool("fe_log", true);
+    static pf::LazyBool s_on_setting;
+    const bool s_on = s_on_setting.get("fe_log", true);
     static std::string s_last;
     const auto word = [app](x86::reg32 address) -> x86::reg32
     { return win32::MemMap::isGuestRange(address, 4) ? x86::reg32(app->getMemory<x86::reg32>(address)) : 0u; };
@@ -481,7 +486,8 @@ uint32_t quadBufferExtent(x86::reg32 buffer, x86::reg32 data, win32::UINT size)
 // frame's length in ms (at most 255), so tools/samples_stack.py can split the profile into slow and fast frames.
 void frameMarkPresent()
 {
-    static const bool s_on = pf::Config::getBool("sampler_frame_marks", false);
+    static pf::LazyBool s_on_setting;
+    const bool s_on = s_on_setting.get("sampler_frame_marks", false);
     static uint64_t s_last = 0;
     static uint32_t s_frame = 0;
     if (!s_on)

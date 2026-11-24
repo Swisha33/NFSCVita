@@ -1145,6 +1145,19 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         --native-writes; now the default codegen in tools/generate.ps1. Run 387: host heap flat at ~23.7 MB over 20 min.
       - Regenerated, profiles re-recorded (work/pgo_falign1.profdata). Runs 388 25.8, 389 26.3 fps vs 382/383 24.6;
         screenshots 391: world, car, HUD as before. x87 depth notes at 004152fe / 00414beb as in older runs.
+   392-400 (2026-11-24). **Guard barriers, audio bank calls in place.**
+      - Run 392 (stack profile, traffic 1.0): slow frames are streaming (section load 006ad8f0 11 ms of 77; 0055dc20
+        walks the model-reference list per solid pack, 3.5 ms); the game thread waits ~3 ms per frame on the SND lock.
+      - ~2 % of the game thread sat right after `dmb` barriers: thread-safe guards of function-local
+        `static const x = Config::get...()` in per-draw code, and a seq_cst read of s_dumping in Device::draw.
+        New pf::LazyBool / pf::LazyInt (config.h, constant-initialized, plain load); s_dumping read relaxed. Runs
+        396 / 397 with re-recorded profiles (work/pgo_lazy1.profdata): 26.1 / 25.5 fps (noise-level).
+      - Audio bank routines (bankcode.py): calls into the audio library (0x89xxxx) run in place in the Direct
+        variant instead of returning to runNative and dynamic_call (the round trip was 18 % of the audio thread's
+        time under the SND lock, run 398). Run 399: samples under the lock 39.3 s -> 32.2 s per 170 s run,
+        runRoutine 18 % -> 2 %; run 400 (traffic 1.0): the audio thread holds SND ~2.5-2.7 s per 10 s (was
+        3.0-3.2), the game's SND wait 2.2 -> 1.5 ms per frame, 25.4 fps; all 116 routines still native, sound
+        levels normal. Left under the lock: skid routine bank_a7eb6b92 27 %, mixer 008a25b8 13 %, 005373b0 10 %.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

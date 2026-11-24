@@ -22,6 +22,32 @@ public:
     static int  getChoice(const char* key, const char* const* names, int count, int defaultIndex);
 };
 
+// A setting for hot code, read on first use. A function-local `static const x = Config::get...()` pays a thread-safe
+// guard check (a load and a memory barrier) on every call: ~2 % of the game thread at the barriers (run 392). These
+// are constant-initialized, so a call is a plain load. Two threads reading one first both store the same value.
+struct LazyBool
+{
+    signed char state = -1;
+    bool get(const char* key, bool defaultValue)
+    {
+        if (state < 0)
+            state = Config::getBool(key, defaultValue) ? 1 : 0;
+        return state != 0;
+    }
+};
+
+struct LazyInt
+{
+    static constexpr int Unread = int(0x80000000u);
+    int value = Unread;
+    int get(const char* key, int defaultValue)
+    {
+        if (value == Unread)
+            value = Config::getInt(key, defaultValue);
+        return value;
+    }
+};
+
 }
 
 #endif

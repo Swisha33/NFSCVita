@@ -37,7 +37,8 @@ x86::reg32 guestOf(Object* object)
 // Setting texture_async=off: unlocks swizzle on the game thread.
 bool asyncUploads()
 {
-    static const bool async = pf::Config::getBool("texture_async", true);
+    static pf::LazyBool async_setting;
+    const bool async = async_setting.get("texture_async", true);
     return async;
 }
 
@@ -897,7 +898,8 @@ static Buffer::UnlockObserver s_unlockObserver = nullptr;
 // by buffer size, locked size and flags (the five with the most bytes).
 static void unlockStats(UINT size, UINT lockSize, DWORD flags, DWORD usage)
 {
-    static const bool s_on = pf::Config::getBool("debug_buffer_copies", false);
+    static pf::LazyBool s_on_setting;
+    const bool s_on = s_on_setting.get("debug_buffer_copies", false);
     if (!s_on)
         return;
     // size 0: an in-place unlock (lockSize bytes copied into the current GPU copy), counted apart.

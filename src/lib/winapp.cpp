@@ -782,7 +782,8 @@ void WinApplication::yieldContext(const x86::CPU& cpu)
         return;
     // Setting debug_no_yield (development): never yield; waiters get the lock when the holder blocks or presents.
     // Run 206: the game hangs at boot without it (guest code spin-waits on a higher-level thread).
-    static const bool s_noYield = pf::Config::getBool("debug_no_yield", false);
+    static pf::LazyBool s_noYield_setting;
+    const bool s_noYield = s_noYield_setting.get("debug_no_yield", false);
     if (s_noYield)
         return;
     int top = level + 1;

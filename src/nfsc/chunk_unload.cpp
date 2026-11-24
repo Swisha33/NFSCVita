@@ -72,7 +72,8 @@ reg32 callPointer(win32::WinApplication* app, x86::CPU& cpu, reg32 function, reg
 
 bool fastOff()
 {
-    static const bool off = !pf::Config::getBool("fast_chunk_unload", true);
+    static pf::LazyBool off_setting;
+    const bool off = !off_setting.get("fast_chunk_unload", true);
     return off;
 }
 

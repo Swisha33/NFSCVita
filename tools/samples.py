@@ -66,7 +66,7 @@ def main():
     if 'pf::sampler::start' in ' '.join(names[:0]) or True:
         for i, n in enumerate(names):
             if n.startswith('pf::sampler::start('):
-                bias = start_addr - addrs[i]
+                bias = (start_addr & ~1) - addrs[i]
                 break
     own = collections.Counter()
     pcs = collections.Counter()

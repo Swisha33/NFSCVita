@@ -50,10 +50,12 @@ std::atomic<bool> s_dumping{false};
 
 bool dumpThisFrame(uint32_t index)
 {
-    static const bool on = pf::Config::getBool("debug_frame_dump", false);
+    static pf::LazyBool on_setting;
+    const bool on = on_setting.get("debug_frame_dump", false);
     static uint32_t dumped = 0;
     // A few frames after the start-up and loading frames (boot_race reaches the race at ~frame 300).
-    static const int from = pf::Config::getInt("debug_frame_dump_from", 450);
+    static pf::LazyInt from_setting;
+    const int from = from_setting.get("debug_frame_dump_from", 450);
     if (!on || dumped >= 3 || index < uint32_t(from) || index % 150 != 1)
         return false;
     ++dumped;
@@ -73,7 +75,11 @@ struct SkipCycle
 
 SkipCycle& skipCycle()
 {
-    static SkipCycle cycle = []()
+    // Built on first use without a guarded static (skipDraw runs per draw); only the game thread draws.
+    static SkipCycle* s_cycle = nullptr;
+    if (s_cycle)
+        return *s_cycle;
+    s_cycle = new SkipCycle([]()
     {
         SkipCycle c;
         const std::string list = pf::Config::getString("debug_skip_cycle", "");
@@ -89,8 +95,8 @@ SkipCycle& skipCycle()
             start = end + 1;
         }
         return c;
-    }();
-    return cycle;
+    }());
+    return *s_cycle;
 }
 
 bool skipDraw(uint32_t frameIndex, const EffectPass* pass, bool toTexture)
@@ -327,7 +333,7 @@ render::Frame* Device::frame(WinApplication* app, x86::CPU& cpu)
         m_frameFull = false;
         m_stream = &frameStream(m_frame->index);
         s_dumping = dumpThisFrame(m_frame->index);
-        if (s_dumping)
+        if (s_dumping.load(std::memory_order_relaxed))
             pf::logInfo("dump: frame %u, back buffer %ux%u", m_frame->index, unsigned(m_params.BackBufferWidth),
                         unsigned(m_params.BackBufferHeight));
     }
@@ -339,7 +345,7 @@ namespace bridge
 
 bool dumpingFrame()
 {
-    return s_dumping;
+    return s_dumping.load(std::memory_order_relaxed);
 }
 
 static PresentHook s_presentHook = nullptr;
@@ -500,7 +506,7 @@ HRESULT Device::draw(WinApplication* app, x86::CPU& cpu, DWORD type, UINT primit
     d.indices = indices;
     d.count = inputs;
     d.vertexCount = count;
-    if (s_dumping)
+    if (s_dumping.load(std::memory_order_relaxed))
     {
         const Object* t = m_state.textures[0];
         const Texture* texture = t && t->kind() == KindTexture ? static_cast<const Texture*>(t) : nullptr;
@@ -717,12 +723,13 @@ HRESULT Device::Present(WinApplication* app, x86::CPU& cpu, const RECT* source, 
     bridge::runPresentHook(app, cpu);
     // Setting debug_evict_buffers=N (test): every N frames, the guest copies of static buffers go as on memory
     // exhaustion (Buffer::evictShadows), to check that the copies come back intact at the next Lock.
-    static const int s_evictEvery = pf::Config::getInt("debug_evict_buffers", 0);
+    static pf::LazyInt s_evictEvery_setting;
+    const int s_evictEvery = s_evictEvery_setting.get("debug_evict_buffers", 0);
     if (s_evictEvery > 0 && m_frame && m_frame->index % uint32_t(s_evictEvery) == 0)
         Buffer::evictShadows();
     // A frame without draws still shows (black), so the pacing stays the same.
     frame(app, cpu);
-    if (s_dumping)
+    if (s_dumping.load(std::memory_order_relaxed))
         pf::logInfo("dump: present frame %u, %u draws, %u scenes", m_frame->index, m_frame->drawCount,
                     m_frame->sceneCount);
     s_dumping = false;
@@ -1181,7 +1188,7 @@ HRESULT Device::Clear(WinApplication* app, x86::CPU& cpu, DWORD count, const D3D
     const D3DVIEWPORT9& vp = m_state.viewport;
     const LONG vx0 = LONG(vp.X), vy0 = LONG(vp.Y);
     const LONG vx1 = std::min<LONG>(vx0 + LONG(vp.Width), s->width), vy1 = std::min<LONG>(vy0 + LONG(vp.Height), s->height);
-    if (s_dumping)
+    if (s_dumping.load(std::memory_order_relaxed))
         pf::logInfo("dump: clear target %s %ux%u, viewport %ld,%ld-%ld,%ld, %u rects, flags %lx, colour %08lx",
                     s->target.color ? "texture" : "back buffer", unsigned(s->width), unsigned(s->height), long(vx0),
                     long(vy0), long(vx1), long(vy1), unsigned(rects ? count : 0), (unsigned long)flags,
@@ -1635,7 +1642,7 @@ HRESULT Device::DrawPrimitiveUP(WinApplication* app, x86::CPU& cpu, DWORD type, 
         return D3D_OK;
     }
     memcpy(copy, data, size_t(vertices) * stride);
-    if (s_dumping)
+    if (s_dumping.load(std::memory_order_relaxed))
     {
         // x, y: the first two floats of each vertex; diffuse after the position (and normal) of an FVF.
         float x0 = HUGE_VALF, x1 = -HUGE_VALF, y0 = HUGE_VALF, y1 = -HUGE_VALF;

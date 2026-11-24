@@ -37,7 +37,8 @@ const int TraceLines = 30000;
 
 bool tracing()
 {
-    static const bool on = pf::Config::getBool("load_trace", false);
+    static pf::LazyBool on_setting;
+    const bool on = on_setting.get("load_trace", false);
     static int s_lines = 0;
     if (!on || s_lines >= TraceLines)
         return false;
@@ -56,7 +57,8 @@ bool s_raceStartWait = false;
 // Setting race_start_yield (default on): in that loop, give up the execution lock for 1 ms per pass.
 void raceStartYield(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static const bool on = pf::Config::getBool("race_start_yield", true);
+    static pf::LazyBool on_setting;
+    const bool on = on_setting.get("race_start_yield", true);
     static bool s_logged = false;
     if (!on || !s_raceStartWait || !rc::ld32(LoaderFlag) || !app->holdsContext(cpu))
         return;

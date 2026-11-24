@@ -36,12 +36,13 @@ const reg32 FirstFaceView = 0x00b4ba10, FaceViewStride = 0x80, FaceCount = 6, In
 
 int envmapInterval()
 {
-    static const int s_interval = [] {
-        const int n = std::min(std::max(pf::Config::getInt("envmap_interval", 3), 1), 6);
-        if (n > 1)
-            pf::logInfo("envmap: car environment map faces drawn over %d frames (envmap_interval)", n);
-        return n;
-    }();
+    static int s_interval = 0;     // 0: not read yet (a plain static: no guard check per call)
+    if (!s_interval)
+    {
+        s_interval = std::min(std::max(pf::Config::getInt("envmap_interval", 3), 1), 6);
+        if (s_interval > 1)
+            pf::logInfo("envmap: car environment map faces drawn over %d frames (envmap_interval)", s_interval);
+    }
     return s_interval;
 }
 
@@ -72,7 +73,8 @@ void sub_72e460(win32::WinApplication* app, x86::CPU& cpu)
 
 void sub_46cec0(win32::WinApplication* app, x86::CPU& cpu)
 {
-    static const bool s_native = pf::Config::getBool("timer_native", true);
+    static pf::LazyBool s_native_setting;
+    const bool s_native = s_native_setting.get("timer_native", true);
     if (!s_native)
         return sub_46cec0_guest(app, cpu);
     const int64_t now = int64_t(pf::ticksUs());

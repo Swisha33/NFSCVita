@@ -12,13 +12,19 @@
 #include <cstdint>
 #include <vector>
 
+namespace win32 { class WinApplication; }
+
 namespace nfsc { namespace bankcode {
 
 using x86::reg32;
 
-// Stores straight to guest memory.
+// The application whose translated library functions the routines call in place (bankcode.cpp install).
+extern win32::WinApplication* g_bankApp;
+
+// Stores straight to guest memory. Calls to the audio library run in place (InlineCalls).
 struct Direct
 {
+    static constexpr bool InlineCalls = true;
     void st32(reg32 address, reg32 value) { rc::st32(address, value); }
     void st8(reg32 address, x86::reg8 value) { rc::st8(address, value); }
 };
@@ -26,6 +32,7 @@ struct Direct
 // Stores to guest memory, each logged with the value it replaced.
 struct Recording
 {
+    static constexpr bool InlineCalls = false;
     struct Store
     {
         reg32   address;
