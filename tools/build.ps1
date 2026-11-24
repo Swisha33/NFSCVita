@@ -24,7 +24,8 @@ param(
     [switch]$PgoGenerate,
     [string]$PgoList,
     [string[]]$PgoUse,
-    [switch]$NoPgo
+    [switch]$NoPgo,
+    [int]$HotCallsite = 0
 )
 if ($NoPgo -and $PgoUse) { throw '-NoPgo and -PgoUse exclude each other' }
 if ($NoLto -and $Compiler -ne 'clang') { throw '-NoLto needs -Compiler clang' }
@@ -115,7 +116,8 @@ if ($Clean -and (Test-Path $build)) { Remove-Item $build -Recurse -Force -ErrorA
 $compilerOptions = @("-DNFSU_COMPILER=$Compiler", "-DNFSU_PGO_GENERATE=$(if ($PgoGenerate) { 'ON' } else { 'OFF' })",
                      "-DNFSU_PGO_USE=$($PgoUse -join ';')")
 if ($Compiler -eq 'clang') {
-    $compilerOptions += "-DNFSU_LTO=$(if ($NoLto) { 'OFF' } else { 'ON' })", "-DNFSU_PGO_LIST=$PgoList"
+    $compilerOptions += "-DNFSU_LTO=$(if ($NoLto) { 'OFF' } else { 'ON' })", "-DNFSU_PGO_LIST=$PgoList",
+                        "-DNFSU_HOT_CALLSITE=$HotCallsite"
     if (-not $env:NFSU_LLVM) { Write-Host 'NFSU_LLVM not set: clang from PATH' }
 }
 $stampLines = $compilerOptions + @(@($PgoUse) + @($PgoList) | Where-Object { $_ } |

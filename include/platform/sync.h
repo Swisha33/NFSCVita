@@ -79,7 +79,9 @@ public:
 private:
     CondVar(const CondVar&) = delete;
     CondVar& operator=(const CondVar&) = delete;
+    void relockAfterInterrupt();
     SceUID m_id;
+    SceUID m_mutex;
 };
 
 // Timeouts are cut to about 35 minutes; wait errors other than a timeout are fatal.

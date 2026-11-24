@@ -31,6 +31,11 @@ if(NFSU_LTO)
   # Link-time backends: -O2, one job per core, a cache in the build directory, no SLP vectorisation.
   list(APPEND NFSU_CLANG_LINK_FLAGS -flto=thin -Wl,--lto-O2 -Wl,--thinlto-jobs=${NFSU_LTO_JOBS}
        "-Wl,--thinlto-cache-dir=${CMAKE_BINARY_DIR}/thinlto-cache" -Wl,-mllvm,-vectorize-slp=false)
+  # -HotCallsite N (build.ps1): PGO's inline limit for hot call sites in the generated code (LLVM default 3000).
+  if(NFSU_HOT_CALLSITE GREATER 0)
+    list(APPEND NFSU_CLANG_GAME_FLAGS -mllvm -hot-callsite-threshold=${NFSU_HOT_CALLSITE})
+    list(APPEND NFSU_CLANG_LINK_FLAGS -Wl,-mllvm,-hot-callsite-threshold=${NFSU_HOT_CALLSITE})
+  endif()
 endif()
 
 if(NFSU_PGO_GENERATE)

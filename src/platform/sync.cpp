@@ -144,6 +144,7 @@ bool LwMutex::tryLock()
 
 CondVar::CondVar(const char* name, Mutex& mutex)
     :   m_id(sceKernelCreateCond(name, 0, mutex.handle(), nullptr))
+    ,   m_mutex(mutex.handle())
 {
     if (m_id < 0)
         fatal("sceKernelCreateCond(%s) failed: 0x%08x", name, m_id);
@@ -161,15 +162,37 @@ CondVar::~CondVar()
     sceKernelDeleteCond(m_id);
 }
 
+// A wait the sampler interrupted (THREAD_SUSPENDED) can return without the mutex: the caller then went on as after a
+// spurious wakeup and its next wait failed with MUTEX_NOT_OWNED (runs 405 and 425, sampler runs only). The mutex is
+// taken again unless this thread already owns it.
+void CondVar::relockAfterInterrupt()
+{
+    SceKernelMutexInfo info;
+    memset(&info, 0, sizeof(info));
+    info.size = sizeof(info);
+    if (sceKernelGetMutexInfo(m_mutex, &info) >= 0 && info.currentOwnerId == sceKernelGetThreadId()
+        && info.currentCount > 0)
+        return;
+    const int result = sceKernelLockMutex(m_mutex, 1, nullptr);
+    if (result < 0)
+        logError("sceKernelLockMutex after an interrupted condition wait failed: 0x%08x", result);
+}
+
 void CondVar::wait()
 {
-    waitResult(sceKernelWaitCond(m_id, nullptr), "sceKernelWaitCond");
+    const int result = sceKernelWaitCond(m_id, nullptr);
+    if (result == int(SCE_KERNEL_ERROR_THREAD_SUSPENDED))
+        relockAfterInterrupt();
+    waitResult(result, "sceKernelWaitCond");
 }
 
 bool CondVar::waitFor(uint32_t milliseconds)
 {
     SceUInt timeout = timeoutUs(milliseconds);
-    return waitResult(sceKernelWaitCond(m_id, &timeout), "sceKernelWaitCond");
+    const int result = sceKernelWaitCond(m_id, &timeout);
+    if (result == int(SCE_KERNEL_ERROR_THREAD_SUSPENDED))
+        relockAfterInterrupt();
+    return waitResult(result, "sceKernelWaitCond");
 }
 
 void CondVar::signal()

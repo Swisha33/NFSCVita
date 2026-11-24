@@ -122,7 +122,6 @@ static void markBlocks(x86::reg32 begin, x86::reg32 count, bool free)
 static const x86::reg32 SoftSize = 48 * 1024 * 1024 / 4096;
 static x86::reg32 s_softBegin = 0;
 static x86::reg32 s_softEnd = 0;
-static uint32_t s_softSaved[s_freeWordCount];
 static x86::reg32 s_softIntrusions = 0;     // fallback placements inside the range, and their blocks
 static x86::reg32 s_softIntrusionBlocks = 0;
 static x86::reg32 s_softEndAt = 0;          // a block of this many blocks ends it; 0: half the range
@@ -159,6 +158,41 @@ static x86::reg32 previousBlockEnd(x86::reg32 e, bool free)
         bits = free ? s_freeBits[word] : ~s_freeBits[word];
     }
     return (word << 5) + 32 - x86::reg32(__builtin_clz(bits));
+}
+
+// As findLow / findHigh from a given start, without moving the search hints.
+static x86::reg32 findLowFrom(x86::reg32 b, x86::reg32 count, x86::reg32 blockCount)
+{
+    while (b + count <= blockCount)
+    {
+        b = nextBlock(b, blockCount, true);
+        if (b == blockCount)
+            break;
+        const x86::reg32 end = b + count;
+        if (end > blockCount)
+            break;
+        const x86::reg32 s = nextBlock(b, end, false);
+        if (s == end)
+            return b;
+        b = s + 1;
+    }
+    return x86::reg32(-1);
+}
+
+static x86::reg32 findHighFrom(x86::reg32 e, x86::reg32 count)
+{
+    while (e >= count)
+    {
+        e = previousBlockEnd(e, true);
+        if (e < count)
+            break;
+        const x86::reg32 begin = e - count;
+        const x86::reg32 s = std::max(previousBlockEnd(e, false), begin);
+        if (s == begin)
+            return begin;
+        e = s - 1;
+    }
+    return x86::reg32(-1);
 }
 
 // Lowest b with [b, b + count) free: the same block plain first fit from block 0 finds.
@@ -261,15 +295,23 @@ bool MemMap::place(x86::reg32 size, Placement placement)
         const bool mask = softCount && !ends && !intrude;
         if (mask)
         {
-            // Search with the reserved range marked used; the free bits and the search hints come back after.
-            const x86::reg32 w0 = s_softBegin >> 5, w1 = (s_softEnd + 31) >> 5;
-            const x86::reg32 lowFree = s_lowFree, highFree = s_highFree;
-            memcpy(s_softSaved, s_freeBits + w0, (w1 - w0) * 4);
-            markBlocks(s_softBegin, softCount, false);
-            m_block = placement == High ? findHigh(m_blockCount) : findLow(m_blockCount);
-            memcpy(s_freeBits + w0, s_softSaved, (w1 - w0) * 4);
-            s_lowFree = lowFree;
-            s_highFree = highFree;
+            // The fit that does not overlap the reserved range (as a search with the range marked used, which
+            // rewrote its free bits twice per placement: run 415, ~0.4 ms per streaming frame). A low fit that
+            // overlaps it leaves only starts at or after its end; a high one only fits that end at its start.
+            const x86::reg32 count = m_blockCount;
+            const auto overlaps = [&](x86::reg32 b) { return b < s_softEnd && b + count > s_softBegin; };
+            if (placement == High)
+            {
+                m_block = findHighFrom(s_highFree, count);
+                if (m_block != x86::reg32(-1) && overlaps(m_block))
+                    m_block = findHighFrom(s_softBegin, count);
+            }
+            else
+            {
+                m_block = findLowFrom(s_lowFree, count, s_blockCount);
+                if (m_block != x86::reg32(-1) && overlaps(m_block))
+                    m_block = findLowFrom(s_softEnd, count, s_blockCount);
+            }
         }
         else
         {

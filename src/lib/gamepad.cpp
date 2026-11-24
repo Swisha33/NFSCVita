@@ -325,9 +325,18 @@ void updatePointer(const controls::PadSample& pad, uint64_t now, bool busy)
 // rear touch halves are not waited for.
 // While a field is edited with the keyboard closed, Cross opens it and Circle cancels the field; neither reaches the
 // game then.
+// Run 415: the game polls several times per frame (DirectInput GetDeviceState for each device and the window
+// messages); each poll read the pad and the rear panel with two system calls (~0.5 % of the game thread). Within
+// PumpIntervalUs of the last read the state is kept.
+const uint64_t PumpIntervalUs = 2000;
+
 void pump()
 {
     const uint64_t now = pf::ticksUs();
+    static uint64_t s_lastPump = 0;
+    if (s_lastPump && now - s_lastPump < PumpIntervalUs)
+        return;
+    s_lastPump = now;
     const controls::PadSample pad = controls::readPad();
     const uint32_t pressed = pad.inputs & ~s_padInputs;
     s_padInputs = pad.inputs;

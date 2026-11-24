@@ -1190,6 +1190,17 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       replaces its method natively in float (audio_resample_native, default on): mixer 13 % -> 7.9 % + 3.2 % of the
       audio thread's SND-held time; race-time holds ~2650 (417) -> ~2450 (418) -> ~2330 ms per 10 s (421), audio
       levels as before. Runs 422/423: 27.6 / 26.3 fps (traffic 1.0).
+   424-428 (2026-11-24). **Streaming placement, input polling, interrupted condition waits.**
+      - Run 424 (debug_poke a65358=0, road reflections): same draw count, nothing to gain.
+      - -HotCallsite N (build.ps1, PGO's hot call-site inline limit for the generated code): 750 left the big
+        functions about as large (727230 44 -> 41 KB): kept as an option, default off.
+      - MemMap::place searched with the soft reservation masked (its free bits rewritten and restored per placement:
+        ~0.44 ms per streaming frame, run 415); now it searches past the range: 0.02 ms (run 428).
+      - gamepad pump(): the pad and rear panel are read at most every 2 ms (the game polls several times per frame):
+        sceTouchPeek + sceCtrlPeekBufferPositive 0.53 % -> 0.14 % of the game thread.
+      - CondVar waits the sampler interrupts (THREAD_SUSPENDED) could return without the mutex: the next wait failed
+        with MUTEX_NOT_OWNED (fatal in sampler runs 405 and 425). The mutex is now taken again when not owned.
+      - Runs 426/427: 26.3 (traffic 1.0) / 27.2 fps.
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank
