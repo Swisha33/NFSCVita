@@ -1138,6 +1138,13 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         spread over n frames; default 3. Runs 381 (2) 23.6, 382 (3) 24.7, 383 (3) 24.5 vs 384 (1) 23.7 fps;
         screenshots 383/384: the car is lit and reflects as before. 0046cec0 (QueryPerformanceCounter >> [0xa8534c])
         is native too (timer_native).
+   385-391 (2026-11-24). **Recompiler passes from NFSUG2_VITA, new PGO profiles: ~26 fps.**
+      - generate.py: --float-align all (x87/SSE float loads and stores as plain ARM float accesses; the check build
+        reported 0 misaligned sites in races and the front end), --inline-ftol2 (0087eac0 inlined), --pure-natives
+        (calls to 0087eac0, 0070f0b0, 0071b630, 0046fcc0, 0079f9c0, 0046cec0 keep guest state in registers),
+        --native-writes; now the default codegen in tools/generate.ps1. Run 387: host heap flat at ~23.7 MB over 20 min.
+      - Regenerated, profiles re-recorded (work/pgo_falign1.profdata). Runs 388 25.8, 389 26.3 fps vs 382/383 24.6;
+        screenshots 391: world, car, HUD as before. x87 depth notes at 004152fe / 00414beb as in older runs.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

@@ -61,6 +61,14 @@ NATIVE_OVERRIDES = [0x8AD305, 0x8AD12E, 0x89F363, 0x87EAC0, 0x70F0B0, 0x71B630, 
                     0x6997A0, 0x6B68D0, 0x7D7440, 0x7E6E00, 0x7E4B30,  # load_trace.cpp (diagnostic)
                     0x72E460, 0x46CEC0]  # frame_natives.cpp
 
+# Calls emitted inline with --inline-ftol2 (codegen/control.py INLINE): _ftol2 (native_math.cpp ftolNative).
+INLINE_HELPERS = {0x87EAC0: 'ftol2'}
+
+# Native overrides that never run guest code that could wait or set cpu.terminate (--pure-natives): _ftol2 and the
+# x87 leaf maths of native_math.cpp (their native_check mode runs the guest leaf body, which neither waits nor ends
+# the thread), the clock read of frame_natives.cpp.
+PURE_NATIVES = [0x87EAC0, 0x70F0B0, 0x71B630, 0x46FCC0, 0x79F9C0, 0x46CEC0]
+
 # Entries no static analysis finds: reached only through pointers, vtables or as thread starts. Found during the
 # macOS port's bring-up as "call to unknown target" (github.com/vasist15-source/nfs-carbon-mac game.toml).
 EXTRA_ENTRIES = [
@@ -462,7 +470,21 @@ def main():
                         help='log at run time where the facts behind the three options above fail')
     parser.add_argument('--bank-only', action='store_true',
                         help='only (re)write %s_bank.cpp, the audio bank routines (seconds, no regeneration)' % MODULE)
+    parser.add_argument('--float-align', choices=('off', 'stack', 'all'), default='off',
+                        help='VFP loads and stores for float operands at 4-aligned addresses: none, esp-relative and '
+                             'absolute ones, or also those of other base registers (assumed aligned)')
+    parser.add_argument('--float-align-check', action='store_true',
+                        help='with --float-align: check those addresses at run time and log misaligned sites')
+    parser.add_argument('--inline-ftol2', action='store_true',
+                        help='emit calls to _ftol2 (INLINE_HELPERS) inline instead of calling the native')
+    parser.add_argument('--pure-natives', action='store_true',
+                        help='no cpu.terminate check after calls that reach only PURE_NATIVES')
+    parser.add_argument('--native-writes', action='store_true',
+                        help='callers of a native override take eax, ecx and edx as written where its guest body '
+                             'writes them on every path')
     args = parser.parse_args()
+    codegen.fpu.FLOAT_ALIGN = args.float_align
+    codegen.fpu.FLOAT_ALIGN_CHECK = args.float_align_check
     started = time.time()
     image = check_binary(args.binaries)
     apply_patches(image)
@@ -497,7 +519,10 @@ def main():
                                fpu_deltas=dict(thunk_deltas, **FPU_DELTAS), preempt_loops=True,
                                address_taken=discovery.address_taken,
                                abi_flags=not args.flags_across_calls, jump_targets=JUMP_TARGETS,
-                               flag_audit=args.flag_audit)
+                               flag_audit=args.flag_audit,
+                               inline_calls=INLINE_HELPERS if args.inline_ftol2 else {},
+                               pure_natives=PURE_NATIVES if args.pure_natives else (),
+                               native_writes=args.native_writes)
     program.import_fpu_deltas = import_deltas
     program.analyze()
     program.check_assumptions = args.check_assumptions

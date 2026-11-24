@@ -48,6 +48,6 @@ if ($FlagAudit) { $arguments += '--flag-audit' }
 # through a null pointer and crashed (run 331). $env:NFSC_CODEGEN replaces the list ('none' = no optimizations), e.g.
 # '--promote-stack-slots --fold-rdata --check-assumptions' to log where the facts behind them fail. The generator
 # stamp does not include these options: run with -Regenerate after changing them.
-$codegen = if ($env:NFSC_CODEGEN) { $env:NFSC_CODEGEN } else { '--promote-stack-slots --fold-rdata' }
+$codegen = if ($env:NFSC_CODEGEN) { $env:NFSC_CODEGEN } else { '--promote-stack-slots --fold-rdata --float-align all --inline-ftol2 --pure-natives --native-writes' }
 if ($codegen -ne 'none') { $arguments += ($codegen -split '\s+' | Where-Object { $_ }) }
 if ((Invoke-Python @arguments) -ne 0) { throw 'generation failed' }
