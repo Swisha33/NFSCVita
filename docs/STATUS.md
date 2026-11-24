@@ -1178,6 +1178,13 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
    411-414 (2026-11-24). **PGO profile re-recorded** on commit 53a9a4b (work/pgo_final2.profdata, self in
       work/self_final2.self): 27.5 / 24.8 fps default traffic, 25.9 / 26.1 fps traffic 1.0; no errors. Same level as
       runs 404/410 (the profile mostly catches up with the changed functions); use pgo_final2 from now on.
+   415-420 (2026-11-24). **Bank library calls not inlined.** Run 415 (stack profile): the 3.8 % "sceNetSocketClose"
+      is SceLibKernel (samples.py shows system pcs minus the load bias): sceClibMemcpy/Memset (buffer uploads, guest
+      copies) and file syscalls while loading; no single fix. Run 417 (audio thread under SND): the skid routine
+      bank_a7eb6b92 was 35 % of the lock time: in Direct runs ThinLTO inlined its ~576 library calls into 300 KB of
+      code. bankcode.py now emits them as `NFSC_BANK_CALL` ([[clang::noinline]]): 94 KB, run 418 18.7 % (+ its
+      helpers listed apart), audio thread SND hold 2068 -> 1740 ms per 10 s. d3d9_native: the capture checks skip
+      their emulated-TLS reads until a capture begins (never in Carbon). Runs 419/420: 26.7 / 26.1 fps (traffic 1.0).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank

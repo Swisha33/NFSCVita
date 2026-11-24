@@ -22,6 +22,13 @@ using x86::reg32;
 extern win32::WinApplication* g_bankApp;
 
 // Stores straight to guest memory. Calls to the audio library run in place (InlineCalls).
+// Library calls of Direct runs stay calls (bankcode.py): inlined they made the routines several times larger.
+#if defined(__clang__)
+#define NFSC_BANK_CALL [[clang::noinline]]
+#else
+#define NFSC_BANK_CALL
+#endif
+
 struct Direct
 {
     static constexpr bool InlineCalls = true;

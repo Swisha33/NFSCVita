@@ -332,11 +332,12 @@ def instruction_lines(routine, ins):
         if kind == 'library':
             # Direct runs call the translated library function in place (run 398: the round trip through runNative
             # and dynamic_call was 18 % of the audio thread's time under the SND lock); recorded runs return to the
-            # caller at each call as before.
+            # caller at each call as before. The call is never inlined: run 417's skid routine had its ~576 calls
+            # inlined into 300 KB of code (an I-cache refill per run, 35 % of the SND lock time).
             LIBRARY_TARGETS.add(value)
             return ['esp -= 4;', '%s;' % STATE, 'cpu.ip = %s;' % target,
                     'if constexpr (Memory::InlineCalls)', '{',
-                    '    %s::sub_%06x(g_bankApp, cpu);' % (MODULE, value),
+                    '    NFSC_BANK_CALL %s::sub_%06x(g_bankApp, cpu);' % (MODULE, value),
                     '    if (cpu.terminate)', '        return Returned;',
                     '    eax = cpu.eax, ecx = cpu.ecx, edx = cpu.edx, ebx = cpu.ebx;',
                     '    esp = cpu.esp, ebp = cpu.ebp, esi = cpu.esi, edi = cpu.edi;',

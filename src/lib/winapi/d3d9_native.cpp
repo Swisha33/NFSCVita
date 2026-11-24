@@ -23,6 +23,9 @@ namespace
 
 // Per thread: calls of other threads during a capture run and are not recorded.
 thread_local Capture* s_capture = nullptr;
+// Set by the first begin(): until then no thread captures, and the checks skip the emulated TLS reads
+// (__emutls_get_address per access, on every bridge call).
+bool s_anyCapture = false;
 thread_local uint32_t s_paused = 0;
 WinApplication* s_app = nullptr;
 MemMap* s_calloutMemory = nullptr;
@@ -176,7 +179,7 @@ private:
 
 inline bool active()
 {
-    return s_capture && !s_paused;
+    return s_anyCapture && s_capture && !s_paused;
 }
 
 // Guest call: the registers it starts with.
@@ -1100,6 +1103,7 @@ void begin(Capture& capture, Capture::Mode mode)
     capture.mode = mode;
     capture.next = 0;
     capture.replayed = 0;
+    s_anyCapture = true;
     s_capture = &capture;
     s_paused = 0;
 }
@@ -1111,7 +1115,7 @@ void end()
 
 bool capturing()
 {
-    return s_capture != nullptr;
+    return s_anyCapture && s_capture != nullptr;
 }
 
 reg32 calloutAddress(uint32_t index)
@@ -1163,7 +1167,7 @@ void configureDeferral(DeferMode mode, bool frame, int core, int priority)
 bool deferBegin(WinApplication* app, x86::CPU& cpu, reg32 guest)
 {
     Deferral& d = s_defer;
-    if (d.mode == DeferOff || d.inWindow || s_capture || (d.owned && d.ownerFs != cpu.efs))
+    if (d.mode == DeferOff || d.inWindow || (s_anyCapture && s_capture) || (d.owned && d.ownerFs != cpu.efs))
         return false;
     if (!d.device)
     {
@@ -2291,7 +2295,7 @@ HRESULT effectSetMatrixProductDirect(WinApplication* app, x86::CPU& cpu, reg32 g
     if (deferring(cpu))
         fallback();
     drain();
-    if (s_capture)
+    if (s_anyCapture && s_capture)
     {
         float m[16];
         multiply(a, b, m);

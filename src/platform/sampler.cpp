@@ -220,6 +220,7 @@ void findLayout()
 
 void logCopies();
 void logWaits();
+void logModules();
 
 // Stack mode: waits counted as they are sampled (the buffer is reused there), named at stop.
 struct StackWait { uint32_t id, type, count; };
@@ -378,6 +379,37 @@ int samplerEntry(void*)
 
 }
 
+namespace
+{
+
+// Loaded modules and their segments: the profile's hot system code (outside the ELF) is named by module.
+void logModules()
+{
+    {
+        SceUID modules[64];
+        SceSize count = 64;
+        if (sceKernelGetModuleList(0xff, modules, &count) >= 0)
+        {
+            for (SceSize m = 0; m < count; ++m)
+            {
+                SceKernelModuleInfo info;
+                memset(&info, 0, sizeof(info));
+                info.size = sizeof(info);
+                if (sceKernelGetModuleInfo(modules[m], &info) < 0)
+                    continue;
+                for (const SceKernelSegmentInfo& segment : info.segments)
+                {
+                    if (segment.memsz)
+                        logInfo("sampler: module %s segment 0x%08x-0x%08x", info.module_name,
+                                unsigned(uintptr_t(segment.vaddr)), unsigned(uintptr_t(segment.vaddr) + segment.memsz));
+                }
+            }
+        }
+    }
+}
+
+}
+
 // Logs the cost of clock and copy calls, and stub targets.
 void timeClocks()
 {
@@ -435,28 +467,7 @@ void timeClocks()
     STUB(sceKernelGetThreadId); STUB(sceKernelSetEventFlag); STUB(sceKernelWaitEventFlag);
     STUB(sceKernelClearEventFlag); STUB(sceKernelPollEventFlag); STUB(sceKernelGetMutexInfo);
 #undef STUB
-    // Loaded modules and their segments: the profile's hot system code (outside the ELF) is named by module.
-    {
-        SceUID modules[64];
-        SceSize count = 64;
-        if (sceKernelGetModuleList(0xff, modules, &count) >= 0)
-        {
-            for (SceSize m = 0; m < count; ++m)
-            {
-                SceKernelModuleInfo info;
-                memset(&info, 0, sizeof(info));
-                info.size = sizeof(info);
-                if (sceKernelGetModuleInfo(modules[m], &info) < 0)
-                    continue;
-                for (const SceKernelSegmentInfo& segment : info.segments)
-                {
-                    if (segment.memsz)
-                        logInfo("sampler: module %s segment 0x%08x-0x%08x", info.module_name,
-                                unsigned(uintptr_t(segment.vaddr)), unsigned(uintptr_t(segment.vaddr) + segment.memsz));
-                }
-            }
-        }
-    }
+    logModules();
 }
 
 namespace
