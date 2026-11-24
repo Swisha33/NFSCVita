@@ -975,7 +975,7 @@ HRESULT Buffer::Unlock(WinApplication* app, x86::CPU& cpu)
     const bool discard = (m_lockFlags & D3DLOCK_DISCARD) != 0;
     if (discard && s_unlockExtent && m_lockOffset == 0)
     {
-        const uint32_t written = s_unlockExtent(guest(), m_shadow->getBlockStart(), m_lockSize);
+        const uint32_t written = s_unlockExtent(cpu, guest(), m_shadow->getBlockStart(), m_lockSize);
         if (written <= m_lockSize)
             m_lockSize = written;
     }

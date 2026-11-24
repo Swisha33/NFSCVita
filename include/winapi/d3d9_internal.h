@@ -577,7 +577,7 @@ public:
     // Bytes the guest wrote from the start of a D3DLOCK_DISCARD lock at offset 0 of the buffer (guest address
     // buffer, data its locked memory), or 0xffffffff when unknown: Unlock then uploads only those bytes (the rest of
     // a discarded buffer is undefined in D3D9).
-    typedef uint32_t (*UnlockExtent)(x86::reg32 buffer, x86::reg32 data, UINT size);
+    typedef uint32_t (*UnlockExtent)(const x86::CPU& cpu, x86::reg32 buffer, x86::reg32 data, UINT size);
     static void setUnlockExtent(UnlockExtent extent);
 
     HRESULT GetDevice(WinApplication* app, x86::CPU& cpu, x86::reg32* device);

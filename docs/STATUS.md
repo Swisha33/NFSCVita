@@ -1169,6 +1169,11 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       - The GPU is busy 24 ms per frame on average (perf lines, run 404), up to 29-30 in the city: near the frame
         time. Fragment programs compiled with fastprecision + fastmath (tools/shadercomp.ps1 -FragmentOptions, new;
         vertex programs and blit_f as shipped): GPU busy 24.1 -> 20.1 ms (run 408), screenshots 407 unchanged.
+   409-410 (2026-11-24). **Quad batch uploads.** The quad batch 0074ebc0 (tyre smoke and similar: 96-byte quads,
+      cursor at batch +0x10) locks its whole 192000-byte buffer with DISCARD ~15 times a second for a few quads; the
+      unlock-extent hook (main.cpp quadBufferExtent, now given the cpu: ebp is the batch at the unlock) uploads only
+      the written quads. Run 409 (debug_buffer_copies): busy-buffer copies 28-36 MB -> 2-10 MB per 10 s, in-place
+      uploads 20-43 -> 9-15 MB; smoke drawn as before (screenshots). Run 410 (traffic 1.0): 26.2 fps.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

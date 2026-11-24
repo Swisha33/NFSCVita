@@ -467,8 +467,20 @@ void textEntryPresent(win32::WinApplication* app, const std::string& screen)
 // at the cursor; the unlocks (00710d10, 00710d40, 007262c0) run before the cursor is cleared. Unlock uploads only
 // the bytes below the cursor instead of all 180 KB (debug_buffer_copies, run 353: the largest buffer upload).
 // Setting quad_upload_extent (default on).
-uint32_t quadBufferExtent(x86::reg32 buffer, x86::reg32 data, win32::UINT size)
+//
+// The same for the quad batch 0074ebc0 (thiscall; [this] = batch: +0 the vertex buffer, +0xc capacity in quads,
+// +0x10 quads written, +0x1c the locked data): it locks the whole buffer (192000 bytes, D3DLOCK_DISCARD), writes 96
+// bytes per quad at the cursor and unlocks with ebp = batch (0074edf7 .. 0074ee11). ~15 locks a second copied
+// 28 MB per 10 s (debug_buffer_copies, run 393) for a few quads each.
+uint32_t quadBufferExtent(const x86::CPU& cpu, x86::reg32 buffer, x86::reg32 data, win32::UINT size)
 {
+    const x86::reg32 batch = cpu.ebp;
+    if (win32::MemMap::isGuestRange(batch, 0x20) && rc::ld32(batch) == buffer && rc::ld32(batch + 0x1c) == data
+        && rc::ld32(batch + 0xc) * 96 == size)
+    {
+        const x86::reg32 quads = rc::ld32(batch + 0x10);
+        return quads <= rc::ld32(batch + 0xc) ? quads * 96 : 0xffffffffu;
+    }
     const x86::reg32 Quads = 0x00aaf558, Cursors = 0x00aaf58c;
     for (x86::reg32 i = 0; i < 2; ++i)
     {
