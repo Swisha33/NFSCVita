@@ -7,6 +7,7 @@
 #include <platform/log.h>
 #include <platform/perf.h>
 #include <platform/texture.h>
+#include <platform/time.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -629,7 +630,28 @@ render::Frame* FrameRenderer::beginFrame(uint32_t width, uint32_t height)
     {
         const bool timed = perf::hitch();
         const uint32_t start = timed ? perf::now() : 0;
-        sceGxmNotificationWait(&s.done);
+        // Every 10 s: how often the game thread found the slot's frame still on the GPU, and how long it waited.
+        static uint32_t s_waits = 0, s_waitUs = 0, s_maxUs = 0, s_frames = 0, s_windowStart = 0;
+        if (*s.done.address != s.done.value)
+        {
+            const uint32_t t0 = ticksUsLow();
+            sceGxmNotificationWait(&s.done);
+            const uint32_t us = ticksUsLow() - t0;
+            ++s_waits;
+            s_waitUs += us;
+            s_maxUs = std::max(s_maxUs, us);
+        }
+        ++s_frames;
+        const uint32_t now = ticksUsLow();
+        if (!s_windowStart)
+            s_windowStart = now;
+        else if (now - s_windowStart >= 10000000)
+        {
+            logInfo("gxm: frame slot waits %u of %u frames, %.1f ms total, max %.1f ms", unsigned(s_waits),
+                    unsigned(s_frames), s_waitUs / 1000.0, s_maxUs / 1000.0);
+            s_waits = s_waitUs = s_maxUs = s_frames = 0;
+            s_windowStart = now;
+        }
         if (timed)
             perf::event(perf::EventFenceWaitUs, perf::now() - start);
         s.inFlight = false;

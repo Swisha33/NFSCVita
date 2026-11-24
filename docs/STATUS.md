@@ -1219,6 +1219,12 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       log_writer (priority 180) every 100 ms and by logSync; errors and fatals are still written and synced at
       once. Run 442 (probe): no in-race waits left. PGO build (final3 profile), runs 443-446: 27.6 / 27.3
       (traffic 1.0) / 27.2 / 27.9 fps vs 434-437 26.5-26.8; fewer frames over 250 ms.
+      - The remaining unnamed game-thread wait (0x110a7, ~10 % of its samples in run 447) is sceGxmNotificationWait
+        in FrameRenderer::beginFrame (3 frame slots), now counted every 10 s ("gxm: frame slot waits"): run 448
+        ~0.5 s per 10 s, only in windows near 30 fps (GPU latency 40-60 ms behind a fast game thread): pacing,
+        not a bottleneck. In the slow windows (18-24 fps) the GPU is idle 75 %+ of the time and no slot waits:
+        game-thread CPU bound. Run 447 leaf profile (PGO): 727230 7.3 %, 71e660 5.2 %, CommitChanges (applyPass +
+        applyFamily inlined, flat) 4.4 %, 79fdb0 4.3 %, 79afa0 3.3 %, DrawIndexedPrimitive 2.4 %, MatrixMultiply 1.6 %.
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank
