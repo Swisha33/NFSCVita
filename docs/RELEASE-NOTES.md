@@ -1,5 +1,26 @@
 # Release notes
 
+## v0.1.7 (pre-release)
+
+Faster again, especially where the frame rate used to drop. Install the new `NFSCVita.vpk` over the old one; your
+game files and saves stay.
+
+### New
+- **About 14 % faster.** Free roam at 500 MHz: about 23.4 fps instead of about 20.5; the slowest stretches about
+  17.5 instead of 15.5 fps.
+  - **Profile-guided optimization (PGO):** the build is optimized with profiles recorded on a real Vita (free roam,
+    a race with full traffic, the menus), as [NFSUG2_VITA](https://github.com/danos-x5/NFSUG2_VITA) does. About
+    +10 %.
+  - **Smaller vertex uploads:** the game's per-frame buffers for particles, light glows and similar quads were copied
+    to the GPU whole (180 KB) on every frame; now only the part the game wrote (usually ~25 KB). About +3 %.
+  - **Cheaper clock reads:** the game reads the clock about 1000 times a frame, most of them while new city
+    sections load.
+
+### Known issues
+- Rare short freezes (up to about a second) when the game's sound thread holds its lock for a long time; being
+  investigated.
+- Spoken audio follows your game files: a copy installed in another language speaks that language.
+
 ## v0.1.6 (pre-release)
 
 Faster, a working world map, and the keyboard opens by itself. Install the new `NFSCVita.vpk` over the old one; your
