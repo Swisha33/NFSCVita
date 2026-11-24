@@ -15,6 +15,9 @@
 #include <platform/log.h>
 #include <platform/render.h>
 #include <cstring>
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+#endif
 #include <vector>
 
 namespace win32 { namespace d3d9
@@ -28,6 +31,30 @@ inline bool sameWords(const void* a, const void* b, uint32_t count)
 {
     const uint8_t* p = static_cast<const uint8_t*>(a);
     const uint8_t* q = static_cast<const uint8_t*>(b);
+#ifdef __ARM_NEON
+    // Changed values usually differ in their first word; long equal runs (bone palettes, harmonics) are compared 16
+    // words per NEON step (run 431: the scalar loop was the hot part of applyFamily's constant stores).
+    if (count >= 16)
+    {
+        uint32_t x, y;
+        memcpy(&x, p, 4);
+        memcpy(&y, q, 4);
+        if (x != y)
+            return false;
+        for (; count >= 16; count -= 16, p += 64, q += 64)
+        {
+            const uint32_t* u = reinterpret_cast<const uint32_t*>(p);
+            const uint32_t* v = reinterpret_cast<const uint32_t*>(q);
+            uint32x4_t d = veorq_u32(vld1q_u32(u), vld1q_u32(v));
+            d = vorrq_u32(d, veorq_u32(vld1q_u32(u + 4), vld1q_u32(v + 4)));
+            d = vorrq_u32(d, veorq_u32(vld1q_u32(u + 8), vld1q_u32(v + 8)));
+            d = vorrq_u32(d, veorq_u32(vld1q_u32(u + 12), vld1q_u32(v + 12)));
+            const uint32x2_t h = vorr_u32(vget_low_u32(d), vget_high_u32(d));
+            if (vget_lane_u32(vpmax_u32(h, h), 0))
+                return false;
+        }
+    }
+#endif
     for (uint32_t i = 0; i < count; ++i, p += 4, q += 4)
     {
         uint32_t x, y;

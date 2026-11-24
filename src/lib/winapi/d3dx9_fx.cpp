@@ -545,12 +545,17 @@ public:
     // debug_texoffset, 70 % of the world commits with values like (0.95, -0.027, -0.298, -0.296)).
     bool floatsOf(const char* name, float* out, uint32_t n) const
     {
-        memset(out, 0, n * 4);
         const int i = literalIndex(name);
         if (i < 0)
+        {
+            memset(out, 0, n * 4);
             return false;
+        }
         const std::vector<uint8_t>& v = m_params[size_t(i)].v();
-        memcpy(out, v.data(), std::min<size_t>(v.size(), n * 4));
+        const size_t copied = std::min<size_t>(v.size(), n * 4);
+        memcpy(out, v.data(), copied);
+        if (copied < n * 4)
+            memset(reinterpret_cast<uint8_t*>(out) + copied, 0, n * 4 - copied);
         return true;
     }
 
