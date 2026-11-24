@@ -1,5 +1,35 @@
 # Release notes
 
+## v0.1.8 (pre-release)
+
+Crash fixes from your reports, and faster again. Install the new `NFSCVita.vpk` over the old one; your game files
+and saves stay.
+
+### Fixed
+- **Crash on the loading screen after a career event** (issue #8: the first speed-camera event in career
+  territory). The cutscene after the event needs a large texture, and the port's graphics memory could only grow
+  in whole 16 MB blocks, so a smaller amount of free memory went unused and the texture could not be created. The
+  graphics memory now also grows in smaller steps, and first frees textures the game has already let go. The same
+  cause most likely explains the crashes in the Quick Race car selector (#4), before a canyon race (#6) and in a
+  speed trap after the textures vanished (#7); any such failure is now written to the log.
+- **Crash after 30-40 minutes of play** (#5): a debugging aid kept a history for every texture the game ever
+  made, and the port's own memory slowly filled up. It is off now; memory use stays flat in long sessions.
+- **Black screen after beating Kenji** (#9): while closing a file, the game waited for a read that needed one of
+  its helper threads, and that thread could not run until the wait ended. The waiting loop now lets the helper
+  thread run.
+
+### Faster
+- **About 18 % faster than v0.1.7** (free roam at 500 MHz: about 27.8 fps instead of about 23.4).
+  - Log lines are written by a thread of their own: writing them to the memory card used to wait behind the
+    game's own reads and caused many of the short in-race freezes.
+  - New profile-guided optimization profile, native audio resampling, smaller sound-routine code, faster vector
+    math (NEON), and cheaper effect state changes.
+
+### Known issues
+- Issues #4-#9 could not all be reproduced here; if one of them still happens, please attach `nfscvita.log` (it
+  now says which memory ran out).
+- Spoken audio follows your game files: a copy installed in another language speaks that language.
+
 ## v0.1.7 (pre-release)
 
 Faster again, especially where the frame rate used to drop. Install the new `NFSCVita.vpk` over the old one; your
