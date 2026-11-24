@@ -26,8 +26,9 @@
 
 </div>
 
-> **Version 0.1.4, early pre-release.** Races, free roam and the career start (through the prologue into the free roam) work, but the game runs at about
-> 20 fps (target: 30) and there are known issues. Expect bugs; save often.
+> **Version 0.1.8, early pre-release.** The career (players have reached and beaten the first boss), races, free roam
+> and police chases work. The game runs at about 28 fps in free roam at 500 MHz (target: 30) and there are known
+> issues. Expect bugs; save often.
 
 > **Vibe-coded.** This port was written almost entirely by an AI coding assistant
 > ([Claude Code](https://claude.com/claude-code)), directed and play-tested on a real Vita by the maintainer. Changes
@@ -145,17 +146,17 @@ Lines starting with `#` are comments.
 
 ## Known issues
 
-- About 20 fps in races and free roam at 500 MHz with CapUnlocker (the CPU is the limit; see [docs/STATUS.md](docs/STATUS.md) for the work on
-  it).
+- About 28 fps in free roam at 500 MHz with CapUnlocker, lower in busy races and while new city sections load (the
+  CPU is the limit; see [docs/STATUS.md](docs/STATUS.md) for the work on it).
 - Movies are skipped: the game's VP6 decoder is too slow on the Vita in this version.
 - Memory is tight: Carbon's PC streaming pools are larger than the Vita's memory. The pools are shrunk, which can
   make the world fill in late after a fast move into a new area. Report crashes with the log, please.
-- Only the career start (prologue into the first free roam), races and free roam have been tested so far; later
-  parts of the career are untested.
+- The career has been played up to the first boss (Kenji); later parts are untested.
 - No online play.
 - Only the one version 1.4 `NFSC.exe` above is supported.
 
-When reporting a bug, attach `ux0:data/NFSCVITA/nfscvita.log` (and any `ux0:data/psp2core-*.psp2dmp` crash dump).
+When reporting a bug, attach `ux0:data/NFSCVITA/nfscvita.log` and `nfscvita.prev.log` (the previous session's log,
+kept when the game is restarted after a crash), and any `ux0:data/psp2core-*.psp2dmp` crash dump.
 
 ## Build
 
