@@ -23,6 +23,8 @@ static bool        s_console = false;
 // failed silently once the game had used up the table (run 15: the log stopped while the game ran on). sceIoWrite is
 // unbuffered, so nothing is lost if the process dies.
 static SceUID s_logFd = -1;
+static int    s_prevResult = 0;     // sceIoRename of the previous log
+static bool   s_prevCopied = false;
 
 static void append(const char* text, unsigned length)
 {
@@ -82,7 +84,26 @@ void logInit(const char* logFilePath)
         const int stem = dot ? int(dot - s_logPath) : int(strlen(s_logPath));
         snprintf(previous, sizeof(previous), "%.*s.prev%s", stem, s_logPath, dot ? dot : "");
         sceIoRemove(previous);
-        sceIoRename(s_logPath, previous);
+        // sceIoRename did not keep it on the user's Vita (no .prev.log ever appeared, 2026-11-24): copy instead.
+        s_prevResult = sceIoRename(s_logPath, previous);
+        if (s_prevResult < 0)
+        {
+            const SceUID from = sceIoOpen(s_logPath, SCE_O_RDONLY, 0);
+            if (from >= 0)
+            {
+                const SceUID to = sceIoOpen(previous, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+                if (to >= 0)
+                {
+                    static char chunk[16384];
+                    int n;
+                    while ((n = sceIoRead(from, chunk, sizeof(chunk))) > 0)
+                        sceIoWrite(to, chunk, n);
+                    sceIoClose(to);
+                    s_prevCopied = true;
+                }
+                sceIoClose(from);
+            }
+        }
         // Only this descriptor writes the file, so its position is always the end: no SCE_O_APPEND.
         s_logFd = sceIoOpen(s_logPath, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (s_logFd < 0)
@@ -93,6 +114,13 @@ void logInit(const char* logFilePath)
             char line[96];
             const int length = snprintf(line, sizeof(line), "[error] log: sceIoOpen failed (0x%08x), one open per line\n",
                                         unsigned(s_logFd));
+            append(line, unsigned(length));
+        }
+        if (s_prevResult < 0)
+        {
+            char line[128];
+            const int length = snprintf(line, sizeof(line), "[info] log: previous log %s (rename 0x%08x)\n",
+                                        s_prevCopied ? "copied to .prev.log" : "not kept", unsigned(s_prevResult));
             append(line, unsigned(length));
         }
     }

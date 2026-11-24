@@ -52,6 +52,10 @@ function Deploy {
 }
 
 function Remove-Log {
+    # Keep a copy of the log first: it may be the user's own session (a test launch once lost one, 2026-11-24).
+    $kept = Join-Path $root ("work\vita_kept_" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
+    & curl.exe -s --connect-timeout 5 -m 60 -o $kept "$ftp/ux0:/data/NFSCVITA/nfscvita.log"
+    if ((Test-Path $kept) -and (Get-Item $kept).Length -eq 0) { Remove-Item $kept }
     & curl.exe -s --connect-timeout 5 -m 30 -Q "DELE /ux0:/data/NFSCVITA/nfscvita.log" "$ftp/" | Out-Null
 }
 
