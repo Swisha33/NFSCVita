@@ -221,6 +221,47 @@ void findLayout()
 void logCopies();
 void logWaits();
 
+// Stack mode: waits counted as they are sampled (the buffer is reused there), named at stop.
+struct StackWait { uint32_t id, type, count; };
+StackWait s_stackWaits[64];
+uint32_t s_stackWaitCount = 0, s_stackSamples = 0;
+
+void countStackWait(uint32_t id, uint32_t type)
+{
+    uint32_t k = 0;
+    while (k < s_stackWaitCount && s_stackWaits[k].id != id)
+        ++k;
+    if (k == s_stackWaitCount && s_stackWaitCount < 64)
+        s_stackWaits[s_stackWaitCount++] = {id, type, 0};
+    if (k < s_stackWaitCount)
+        ++s_stackWaits[k].count;
+}
+
+void logStackWaits()
+{
+    for (uint32_t k = 0; k < s_stackWaitCount; ++k)
+    {
+        const StackWait& w = s_stackWaits[k];
+        if (w.count < 20)
+            continue;
+        char name[32] = "?";
+        SceKernelMutexInfo mutex;
+        mutex.size = sizeof(mutex);
+        SceKernelSemaInfo sema;
+        sema.size = sizeof(sema);
+        const char* lw = LwMutex::nameOf(w.id);
+        if (lw)
+            snprintf(name, sizeof(name), "lw %s", lw);
+        else if (sceKernelGetMutexInfo(SceUID(w.id), &mutex) >= 0)
+            memcpy(name, mutex.name, sizeof(name));
+        else if (sceKernelGetSemaInfo(SceUID(w.id), &sema) >= 0)
+            memcpy(name, sema.name, sizeof(name));
+        name[31] = 0;
+        logInfo("sampler: waits on 0x%08x %s (type 0x%x): %u samples", unsigned(w.id), name, unsigned(w.type),
+                unsigned(w.count));
+    }
+}
+
 bool isReturnAddress(uint32_t word)
 {
     const uint32_t a = word & ~1u;
@@ -275,6 +316,17 @@ int samplerEntry(void*)
         info.size = sizeof(info);
         if (sceKernelGetThreadInfo(target, &info) >= 0 && (info.status & ~(SCE_THREAD_RUNNING | SCE_THREAD_READY)))
         {
+            if (s_stack)
+            {
+                countStackWait(uint32_t(info.waitId), uint32_t(info.waitType));
+                // Nothing calls stop() in Carbon: name the waits every ~30000 waiting samples.
+                if (++s_stackSamples >= 30000)
+                {
+                    logStackWaits();
+                    s_stackSamples = 0;
+                    s_stackWaitCount = 0;
+                }
+            }
             const uint32_t n = s_count.load(std::memory_order_relaxed);
             if (n + 2 <= MaxSamples)
             {
@@ -646,6 +698,8 @@ void stop()
         logCopies();
         logWaits();
     }
+    if (s_stack)
+        logStackWaits();
     writeSamples();
     const uint32_t n = s_total + s_count.load();
     writeHeader(n / 2);

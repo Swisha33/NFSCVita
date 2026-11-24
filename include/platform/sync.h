@@ -38,6 +38,8 @@ public:
     void lock();
     void unlock();
     bool tryLock();
+    // The name of the live LwMutex whose work area holds the word id (a sampler wait id), or nullptr.
+    static const char* nameOf(uint32_t id);
 
 private:
     LwMutex(const LwMutex&) = delete;

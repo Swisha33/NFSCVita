@@ -1108,6 +1108,21 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         bank runner 008cd5da, then 10 ms waiting on a mutex (0x109fd, type 0x40) and 111 ms on an LwMutex
         (0x104c1, type 0x100). Bank code ran all native (0 interpreted), so not the interpreter's execution lock.
         Next: name 0x104c1 (log the LwMutex ids at creation) and see who holds it.
+   368-374 (2026-11-24). **v0.1.7 published (PGO); a lost play log; the sound-lock holds explained.**
+      - The user played two races; the Vita's log was my benchmark run's: tools/vita.ps1 deletes nfscvita.log before
+        a test launch (to see that the game started), and run 368 ran after the user's session. vita.ps1 now first
+        saves it as work/vita_kept_<time>.log. nfscvita.prev.log does work on normal launches (checked: relaunch
+        through port 1338 without the delete); log.cpp copies the file if the rename fails and logs that.
+      - sampler_stack now names wait objects every ~30000 waiting samples (LwMutex::nameOf: live LwMutexes by the
+        words of their work area). Run 374 (450 s, traffic 1.0, sampler on the audio thread): a 196 ms hold of the SND
+        lock = thread 9 in bank code (008cd5da) calling bMalloc 00476b20 -> 00476560 through
+        WinApplication::lockedCall (the audio thread runs unlocked, so a call into guest code needs the execution
+        lock): 8 ms on mutex 0x109fd, 145 ms on 0x104c1 (type 0x100), then 0x1065b, i.e. waiting for the game thread
+        to give up the execution lock, which it does only when it blocks (e.g. on the SND lock itself). Guest
+        critical sections are LwMutexes "guest_mutex" (type 0x100000), not this.
+        Ideas: let the audio thread's lockedCall get the lock at the game thread's next yield point with priority
+        (it is time-critical), or run bMalloc for the audio thread without the execution lock if its pool lock
+        makes that safe (check 00476560 for its critical section first).
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

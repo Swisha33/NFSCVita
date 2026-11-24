@@ -77,8 +77,31 @@ static SceKernelLwMutexWork* lwWork(int64_t* work)
     return reinterpret_cast<SceKernelLwMutexWork*>(work);
 }
 
+// Live LwMutexes, so a sampler wait id can be named (LwMutex::nameOf). Diagnostic only: racy reads are fine.
+static LwMutex* s_lwMutexes[1024];
+
+const char* LwMutex::nameOf(uint32_t id)
+{
+    for (LwMutex* m : s_lwMutexes)
+    {
+        if (!m)
+            continue;
+        const uint32_t* w = reinterpret_cast<const uint32_t*>(m->m_work);
+        for (int i = 0; i < 8; ++i)
+            if (w[i] == id)
+                return m->m_name;
+    }
+    return nullptr;
+}
+
 LwMutex::LwMutex(const char* name, bool recursive)
 {
+    for (LwMutex*& slot : s_lwMutexes)
+        if (!slot)
+        {
+            slot = this;
+            break;
+        }
     strncpy(m_name, name, sizeof(m_name) - 1);
     m_name[sizeof(m_name) - 1] = 0;
     const int result = sceKernelCreateLwMutex(lwWork(m_work), m_name, recursive ? SCE_KERNEL_MUTEX_ATTR_RECURSIVE : 0, 0,
@@ -89,6 +112,9 @@ LwMutex::LwMutex(const char* name, bool recursive)
 
 LwMutex::~LwMutex()
 {
+    for (LwMutex*& slot : s_lwMutexes)
+        if (slot == this)
+            slot = nullptr;
     sceKernelDeleteLwMutex(lwWork(m_work));
 }
 
