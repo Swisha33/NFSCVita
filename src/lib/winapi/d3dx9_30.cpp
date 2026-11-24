@@ -157,10 +157,33 @@ Ptr D3DXMatrixTranslation(WinApplication* app, x86::CPU& cpu, Ptr out, float x, 
     return out;
 }
 
+#ifdef __ARM_NEON
+// v * m on guest memory (run 428: the copies through local arrays and the scalar form, 0.7 % of the game thread).
+// Everything is loaded before the result is stored: out may be v or m.
+static inline float32x4_t transformNeon(float32x4_t v, const float* m)
+{
+    float32x4_t r = vmulq_lane_f32(vld1q_f32(m), vget_low_f32(v), 0);
+    r = vmlaq_lane_f32(r, vld1q_f32(m + 4), vget_low_f32(v), 1);
+    r = vmlaq_lane_f32(r, vld1q_f32(m + 8), vget_high_f32(v), 0);
+    return vmlaq_lane_f32(r, vld1q_f32(m + 12), vget_high_f32(v), 1);
+}
+
+static inline float32x4_t loadVec3(Ptr v, float w)
+{
+    const float* p = reinterpret_cast<const float*>(ptr(v));
+    return vcombine_f32(vld1_f32(p), vset_lane_f32(w, vld1_dup_f32(p + 2), 1));
+}
+#endif
+
 Ptr D3DXVec3Transform(WinApplication* app, x86::CPU& cpu, Ptr out, Ptr v, Ptr m)
 {
     RC_USE(app);
     RC_USE(cpu);
+#ifdef __ARM_NEON
+    vst1q_f32(reinterpret_cast<float*>(ptr(out)),
+              transformNeon(loadVec3(v, 1.0f), reinterpret_cast<const float*>(ptr(m))));
+    return out;
+#endif
     float in[4] = { 0, 0, 0, 1 }, mm[16], r[4];
     load(v, in, 3);
     load(m, mm, 16);
@@ -173,6 +196,11 @@ Ptr D3DXVec4Transform(WinApplication* app, x86::CPU& cpu, Ptr out, Ptr v, Ptr m)
 {
     RC_USE(app);
     RC_USE(cpu);
+#ifdef __ARM_NEON
+    vst1q_f32(reinterpret_cast<float*>(ptr(out)), transformNeon(vld1q_f32(reinterpret_cast<const float*>(ptr(v))),
+                                                                reinterpret_cast<const float*>(ptr(m))));
+    return out;
+#endif
     float in[4], mm[16], r[4];
     load(v, in, 4);
     load(m, mm, 16);
@@ -185,6 +213,13 @@ Ptr D3DXVec3TransformNormal(WinApplication* app, x86::CPU& cpu, Ptr out, Ptr v, 
 {
     RC_USE(app);
     RC_USE(cpu);
+#ifdef __ARM_NEON
+    const float32x4_t t = transformNeon(loadVec3(v, 0.0f), reinterpret_cast<const float*>(ptr(m)));
+    float* o = reinterpret_cast<float*>(ptr(out));
+    vst1_f32(o, vget_low_f32(t));
+    vst1q_lane_f32(o + 2, t, 2);
+    return out;
+#endif
     float in[4] = { 0, 0, 0, 0 }, mm[16], r[4];
     load(v, in, 3);
     load(m, mm, 16);

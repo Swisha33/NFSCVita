@@ -1201,6 +1201,10 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       - CondVar waits the sampler interrupts (THREAD_SUSPENDED) could return without the mutex: the next wait failed
         with MUTEX_NOT_OWNED (fatal in sampler runs 405 and 425). The mutex is now taken again when not owned.
       - Runs 426/427: 26.3 (traffic 1.0) / 27.2 fps.
+   429-433 (2026-11-24). D3DXVec3Transform / Vec4Transform / Vec3TransformNormal in NEON on guest memory (0.7 % ->
+      0.21 % of the game thread); BeginPass walks a per-pass compiled state list (render, stage and sampler states
+      with their values; the sampler textures and pixel shader states in their places) instead of the 112-byte
+      FxStates. Runs 432/433: 26.9 (traffic 1.0) / 27.5 fps; sampler run 431 without errors.
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank

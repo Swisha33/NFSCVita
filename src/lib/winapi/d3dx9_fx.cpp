@@ -169,6 +169,13 @@ struct FxPass
     bool commitCached = false;
     int8_t headlight = -1;              // world family: stage 1 is HEADLIGHT_SAMPLER_OLD (1) or not (0)
     int8_t diffuseStage = -1;           // car family: stage of DIFFUSEMAP_SAMPLER
+    // BeginPass's states in their order, built on first use (applyPass): kind 0 render state (a = state), 1 stage
+    // state (b = stage, a = type), 2 sampler state (b = stage, a = type), 3 a state the loop handles itself
+    // (a = index in states: sampler texture, pixel shader). Walking the 112-byte FxStates and checking each was
+    // ~1.3 % of the game thread (run 428).
+    struct Compiled { uint32_t kind, a, b, v; };
+    std::vector<Compiled> compiled;
+    bool compiledBuilt = false;
 };
 
 struct FxTechnique
@@ -1827,9 +1834,51 @@ void applyPass(FxEffect& fx, const x86::CPU& constCpu, bool full)
     device.SetTextureStageState(s_fxApp, cpu, 0, TssAlphaOp, TopModulate);
     device.SetTextureStageState(s_fxApp, cpu, 0, TssAlphaArg1, TaTexture);
     device.SetTextureStageState(s_fxApp, cpu, 0, TssAlphaArg2, TaDiffuse);
-    for (const FxState& s : pass.states)
+    if (!pass.compiledBuilt)
     {
-        applyState(fx, device, cpu, s, 0xffffffff);
+        pass.compiled.clear();
+        for (size_t k = 0; k < pass.states.size(); ++k)
+        {
+            const FxState& s = pass.states[k];
+            if (s.t.cls != ClassObject && s.value.size() >= 4)
+            {
+                uint32_t v;
+                memcpy(&v, s.value.data(), 4);
+                if (!s.preshader.empty())
+                    D3D_LOG_ONCE("d3dx9: pass states computed by preshaders are not evaluated yet");
+                else if (s.op < 103)
+                    pass.compiled.push_back({ 0, FxRenderState[s.op], 0, v });
+                else if (s.op < 121)
+                {
+                    if (s.index < 8)
+                        pass.compiled.push_back({ 1, FxStageState[s.op - 103], s.index, v });
+                }
+                else if (s.op >= FxOpSamplerFirst && s.op <= FxOpSamplerLast && s.index < 16)
+                    pass.compiled.push_back({ 2, s.op - FxOpSamplerFirst + 1, s.index, v });
+            }
+            if ((s.op == FxOpSamplerTexture && s.index < 16) || (s.op == FxOpPixelShader && s.t.cls == ClassObject))
+                pass.compiled.push_back({ 3, uint32_t(k), 0, 0 });
+        }
+        pass.compiledBuilt = true;
+    }
+    for (const FxPass::Compiled& c : pass.compiled)
+    {
+        if (c.kind == 0)
+        {
+            device.SetRenderState(s_fxApp, cpu, c.a, c.v);
+            continue;
+        }
+        if (c.kind == 1)
+        {
+            device.SetTextureStageState(s_fxApp, cpu, c.b, c.a, c.v);
+            continue;
+        }
+        if (c.kind == 2)
+        {
+            device.SetSamplerState(s_fxApp, cpu, c.b, c.a, c.v);
+            continue;
+        }
+        const FxState& s = pass.states[c.a];
         if (s.op == FxOpSamplerTexture && s.index < 16)
         {
             if (FxParam* texture = namedParam(fx, s))
