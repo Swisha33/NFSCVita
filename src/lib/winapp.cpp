@@ -25,6 +25,7 @@
 #include <platform/sampler.h>
 #include <platform/sync.h>
 #include <platform/time.h>
+#include <malloc.h>
 #include <atomic>
 #include <cstring>
 #include <vector>
@@ -221,8 +222,13 @@ static int watchdogRun(void* argument)
         logFinds();
         const uint64_t idle = pf::ticksUs() - s_lastFrameUs.load(std::memory_order_relaxed);
         if (tick % 5 == 0)
-            pf::logInfo("stall: watchdog alive, last frame %u ms ago, %d guest files open (%d parked)",
-                        unsigned(idle / 1000), File::openCount(), File::parkedCount());
+        {
+            // The host (newlib) heap too: issue #5 died with it full (26 MB in use) after 30-40 minutes.
+            const struct mallinfo host = mallinfo();
+            pf::logInfo("stall: watchdog alive, last frame %u ms ago, %d guest files open (%d parked), host heap %u KB "
+                        "in use", unsigned(idle / 1000), File::openCount(), File::parkedCount(),
+                        unsigned(host.uordblks / 1024));
+        }
         // Every 2 s: a process that dies keeps only synced lines (run 73b lost its last ~10 s).
         pf::logSync();
         if (idle < StallUs)
@@ -921,9 +927,19 @@ void WinApplication::lockedCall(x86::reg32 address, x86::CPU& cpu)
     if (take)
     {
         getMemory<Mutex*>(cpu.efs + ThreadLockOffset) = m_executionContext;
+        const uint32_t waitStart = pf::ticksUsLow();
         lockContext(cpu);
         if (timed)
             locked = pf::perf::now();
+        // Long waits of the unlocked (audio) thread for the execution lock: it may hold EA's sound lock meanwhile.
+        const uint32_t waited = pf::ticksUsLow() - waitStart;
+        static uint32_t s_longWaits = 0;
+        if (waited >= 20000 && s_longWaits < 200)
+        {
+            ++s_longWaits;
+            pf::logInfo("perf: unlocked thread waited %.1f ms for the execution lock to call 0x%08x %s",
+                        waited / 1000.0, unsigned(address), getMethodName(address) ? getMethodName(address) : "");
+        }
     }
     allowPreemption(cpu);
     const MethodSlot* entry = &m_methodSlots[methodSlot(address)];

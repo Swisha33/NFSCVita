@@ -58,7 +58,8 @@ NO_RETURN = []
 # 0x71B780, FEngHud::SetWideScreenMode 0x5D5280, mirror/PiP quad 0x750B30.
 NATIVE_OVERRIDES = [0x8AD305, 0x8AD12E, 0x89F363, 0x87EAC0, 0x70F0B0, 0x71B630, 0x46FCC0, 0x79F9C0,
                     0x71B780, 0x5D5280, 0x750B30, 0x6A83A0,
-                    0x6997A0, 0x6B68D0, 0x7D7440, 0x7E6E00, 0x7E4B30]  # load_trace.cpp (diagnostic)
+                    0x6997A0, 0x6B68D0, 0x7D7440, 0x7E6E00, 0x7E4B30,  # load_trace.cpp (diagnostic)
+                    0x72E460, 0x46CEC0]  # frame_natives.cpp
 
 # Entries no static analysis finds: reached only through pointers, vtables or as thread starts. Found during the
 # macOS port's bring-up as "call to unknown target" (github.com/vasist15-source/nfs-carbon-mac game.toml).

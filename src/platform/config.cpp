@@ -38,7 +38,7 @@ const char* const Known[] =
     "gxm_precomputed", "gxm_lists", "gxm_core2", "gxm_program_list", "cull_swap", "debug_frame_dump", "debug_frame_dump_from",
     "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "pool_log", "debug_texoffset", "debug_evict_buffers", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "fast_chunk_unload", "city_reserve", "file_log", "load_trace", "race_start_yield", "pool_fill", "sim_hz", "promote_lo", "promote_hi", "fe_log", "bank_unlocked", "ug2_layout",
     // Native versions of guest code and their shadow compares.
-    "bank_native", "shadow_bank", "audio_kernel_check", "audio_max_rate", "audio_paced_step", "audio_duty", "audio_unlocked", "audio_lock_free", "audio_thread_core", "sampler_mark_section", "sampler_stack", "sampler_frame_marks", "debug_buffer_copies", "quad_upload_extent", "cpu_clock",
+    "bank_native", "shadow_bank", "audio_kernel_check", "audio_max_rate", "audio_paced_step", "audio_duty", "audio_unlocked", "audio_lock_free", "audio_thread_core", "sampler_mark_section", "sampler_stack", "sampler_frame_marks", "debug_buffer_copies", "quad_upload_extent", "envmap_interval", "timer_native", "fx_commit_cache", "cpu_clock",
     "stream_track_kb", "stream_subpool_kb", "audio_pool_kb", "coll_native", "shadow_coll", "cull_native", "cull_parallel", "shadow_cull",
     "draw_native", "shadow_draw", "flush_native", "flush_async", "flush_async_core", "flush_async_priority",
     "flush_async_frame", "flares_native", "flares_parallel", "shadow_flares",

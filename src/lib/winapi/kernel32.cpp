@@ -550,7 +550,23 @@ void EnterCriticalSection(WinApplication* app, x86::CPU& cpu,
     pf::perf::count(pf::perf::CountCritSec);
     if (!app->holdsContext(cpu))
     {
-        (*lpCriticalSection)->lock();
+        // Long waits of an unlocked thread (the EA audio thread, which may hold the sound lock meanwhile).
+        if (!(*lpCriticalSection)->tryLock())
+        {
+            const uint32_t owner = reinterpret_cast<const uint32_t*>(lpCriticalSection)[3];
+            const uint32_t start = pf::ticksUsLow();
+            (*lpCriticalSection)->lock();
+            const uint32_t waited = pf::ticksUsLow() - start;
+            static uint32_t s_logged = 0;
+            if (waited >= 20000 && s_logged < 200)
+            {
+                ++s_logged;
+                pf::logInfo("critsec: unlocked thread 0x%x waited %.1f ms for 0x%08x (owner 0x%x)",
+                            unsigned(GetCurrentThreadId(app, cpu)), waited / 1000.0,
+                            unsigned(reinterpret_cast<uintptr_t>(lpCriticalSection) - uintptr_t(g_guestBase)),
+                            unsigned(owner));
+            }
+        }
         critSecEntered(app, cpu, lpCriticalSection);
         return;
     }

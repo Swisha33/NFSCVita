@@ -32,6 +32,8 @@
 #include <utility>
 #include <vector>
 #include <psp2/ctrl.h>
+
+namespace nfsc { extern uint32_t g_presentedFrames; }   // frame_natives.cpp
 #include <psp2/power.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
@@ -493,6 +495,7 @@ void frameMarkPresent()
 // Per Present: the pad layout (pad.cpp), car_reflections, pool_fill, sim_hz, debug_poke, pool_log, then ai_drive.
 void framePresent(win32::WinApplication* app, x86::CPU& cpu)
 {
+    ++nfsc::g_presentedFrames;
     frameMarkPresent();
     nfsc::padPresent(app, cpu);
     carReflectionPresent(app);

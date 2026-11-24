@@ -1123,6 +1123,21 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         Ideas: let the audio thread's lockedCall get the lock at the game thread's next yield point with priority
         (it is time-critical), or run bMalloc for the audio thread without the execution lock if its pool lock
         makes that safe (check 00476560 for its critical section first).
+   375-384 (2026-11-24). **Car environment map over 3 frames, CommitChanges cache, sound-lock waits.**
+      - Logging: an unlocked (audio) thread's waits >= 20 ms for the execution lock (lockedCall) or a critical section
+        (EnterCriticalSection) are logged; the watchdog line reports the host heap in use (issue #5 died with it
+        full). Runs 375/376 (400 s, traffic 1.0): no execution-lock waits, thread 9 waits 20-50 ms for the SND lock
+        held by the game thread; no long hold reproduced.
+      - GitHub issues #4-#7 (v0.1.4/0.1.5, read only): crashes after "guest memory exhausted" reclaims (a call through
+        a null pointer: an allocation failed) and one std::bad_alloc with the host heap full (26 MB). Memory, not speed.
+      - fx_commit_cache (default on, d3dx9_fx.cpp): CommitChanges keeps per pass the (stage, texture parameter) list
+        and the headlight / car diffuse stage / particle technique flags instead of map and string lookups per draw
+        (CommitChanges was 5.9 % of the game thread). Runs 379-384: noise-level (22.3-23.7 with interval 1).
+      - envmap_interval (src/nfsc/frame_natives.cpp, native override of 0072e460, regenerated): the car environment
+        map's six cube-face views (0xb4ba10 + 0x80 * face, drawn in the loop at 0072ecea with [0xab0b98] = 1) are
+        spread over n frames; default 3. Runs 381 (2) 23.6, 382 (3) 24.7, 383 (3) 24.5 vs 384 (1) 23.7 fps;
+        screenshots 383/384: the car is lit and reflects as before. 0046cec0 (QueryPerformanceCounter >> [0xa8534c])
+        is native too (timer_native).
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

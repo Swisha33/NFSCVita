@@ -110,6 +110,7 @@ set(NFSU_GAME_PORT_SOURCES
   src/nfsc/chunk_unload.cpp
   src/nfsc/load_trace.cpp
   src/nfsc/native_math.cpp
+  src/nfsc/frame_natives.cpp
   src/nfsc/pad.cpp
   src/nfsc/texturepacks.cpp
   src/nfsc/widescreen.cpp

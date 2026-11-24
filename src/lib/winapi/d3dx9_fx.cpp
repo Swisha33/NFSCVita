@@ -163,11 +163,18 @@ struct FxPass
     std::vector<std::pair<uint32_t, std::string>> samplers;
     std::vector<int> samplerParams;     // index of each sampler's parameter (-1: none), with samplers
     bool samplersParsed = false;
+    // CommitChanges cache (applyPass), built once the samplers are parsed: (stage, texture parameter index) in the
+    // order the uncached path sets them; -1 sets no texture (nullptr). Plus the family flags applyFamily needs.
+    std::vector<std::pair<uint32_t, int>> commitTextures;
+    bool commitCached = false;
+    int8_t headlight = -1;              // world family: stage 1 is HEADLIGHT_SAMPLER_OLD (1) or not (0)
+    int8_t diffuseStage = -1;           // car family: stage of DIFFUSEMAP_SAMPLER
 };
 
 struct FxTechnique
 {
     std::string name;
+    int8_t particleKind = -1;           // particle family: 0 particles, 1 flares, 2 streak_flares (skipped)
     std::vector<FxPass> passes;
     std::vector<uint32_t> annotations;
     reg32 guestName = 0;
@@ -1535,12 +1542,17 @@ void applyFamily(FxEffect& fx, Device& device)
     {
         // Techniques 0-2 (fuzzz, no_fuzzz): particles; 5-6: flares; 3-4 (streak_flares: motion streaks drawn with
         // the previous frame matrix too) keep the fixed-function stand-in.
-        static const std::string none;
-        const std::string& technique = fx.m_technique < fx.m_techniques.size()
-                                     ? fx.m_techniques[fx.m_technique].name : none;
-        if (technique == "streak_flares")
+        int kind = 0;
+        if (fx.m_technique < fx.m_techniques.size())
+        {
+            FxTechnique& t = fx.m_techniques[fx.m_technique];
+            if (t.particleKind < 0)
+                t.particleKind = int8_t(t.name == "streak_flares" ? 2 : t.name == "flares" ? 1 : 0);
+            kind = t.particleKind;
+        }
+        if (kind == 2)
             return;
-        const bool flare = technique == "flares";
+        const bool flare = kind == 1;
         float wvp[16], worldView[16], offset[4] = { 0, 0, 0, 0 }, mode[4] = { 0, 0, 0, 0 };
         float ambient[4] = { 1, 1, 1, 1 };
         fx.floatsOf("WorldViewProj", wvp, 16);
@@ -1609,9 +1621,21 @@ void applyFamily(FxEffect& fx, Device& device)
     {
         fx.m_diffuseStage = 1;
         if (fx.m_technique < fx.m_techniques.size() && fx.m_pass < fx.m_techniques[fx.m_technique].passes.size())
-            for (const std::pair<uint32_t, std::string>& s : fx.m_techniques[fx.m_technique].passes[fx.m_pass].samplers)
-                if (s.second == "DIFFUSEMAP_SAMPLER" && s.first < render::MaxSamplers)
-                    fx.m_diffuseStage = uint8_t(s.first);
+        {
+            FxPass& pass = fx.m_techniques[fx.m_technique].passes[fx.m_pass];
+            if (pass.diffuseStage < 0 || !pass.samplersParsed)
+            {
+                uint8_t stage = 1;
+                for (const std::pair<uint32_t, std::string>& s : pass.samplers)
+                    if (s.second == "DIFFUSEMAP_SAMPLER" && s.first < render::MaxSamplers)
+                        stage = uint8_t(s.first);
+                if (pass.samplersParsed)
+                    pass.diffuseStage = int8_t(stage);
+                fx.m_diffuseStage = stage;
+            }
+            else
+                fx.m_diffuseStage = uint8_t(pass.diffuseStage);
+        }
         float m[40];
         struct { const char* name; CarbonSlot slot; uint32_t n; } const params[] = {
             { "WorldViewProj", CarbonWvp, 16 }, { "cavHarmonicCoeff", CarbonHarmonic, 40 },
@@ -1682,8 +1706,18 @@ void applyFamily(FxEffect& fx, Device& device)
     float headlightWvp[16], headlight[4] = {};
     bool projects = false;
     if (fx.m_technique < fx.m_techniques.size() && fx.m_pass < fx.m_techniques[fx.m_technique].passes.size())
-        for (const std::pair<uint32_t, std::string>& s : fx.m_techniques[fx.m_technique].passes[fx.m_pass].samplers)
-            projects |= s.first == 1 && s.second == "HEADLIGHT_SAMPLER_OLD";
+    {
+        FxPass& pass = fx.m_techniques[fx.m_technique].passes[fx.m_pass];
+        if (pass.headlight < 0 || !pass.samplersParsed)
+        {
+            for (const std::pair<uint32_t, std::string>& s : pass.samplers)
+                projects |= s.first == 1 && s.second == "HEADLIGHT_SAMPLER_OLD";
+            if (pass.samplersParsed)
+                pass.headlight = projects ? 1 : 0;
+        }
+        else
+            projects = pass.headlight != 0;
+    }
     if (projects && fx.floatsOf("cmHeadlight1WVP", headlightWvp, 16))
     {
         fx.floatsOf("headlight_colour_scale", headlight, 4);
@@ -1715,6 +1749,41 @@ void applyPass(FxEffect& fx, const x86::CPU& constCpu, bool full)
     FxPass& pass = technique.passes[fx.m_pass];
     Device& device = *static_cast<Device*>(fx.device());
     x86::CPU& cpu = const_cast<x86::CPU&>(constCpu);
+    static const bool s_commitCache = pf::Config::getBool("fx_commit_cache", true);
+    if (!full && pass.samplersParsed && s_fxCommitLight && s_commitCache)
+    {
+        if (!pass.commitCached)
+        {
+            // The same sequence as the uncached path below, with the parameter lookups done once.
+            pass.commitTextures.clear();
+            for (const FxState& s : pass.states)
+                if (s.op == FxOpSamplerTexture && s.index < 16)
+                {
+                    if (FxParam* texture = namedParam(fx, s))
+                        pass.commitTextures.emplace_back(s.index, int(texture - fx.m_params.data()));
+                }
+            for (size_t k = 0; k < pass.samplers.size(); ++k)
+            {
+                const int i = pass.samplerParams[k];
+                const uint32_t stage = pass.samplers[k].first;
+                if (i < 0 || stage >= 16)
+                    continue;
+                int texture = -1;
+                for (const FxState& ss : fx.m_params[size_t(i)].sampler)
+                    if (ss.op == FxOpSamplerTexture)
+                    {
+                        if (FxParam* t = namedParam(fx, ss))
+                            texture = int(t - fx.m_params.data());
+                    }
+                pass.commitTextures.emplace_back(stage, texture);
+            }
+            pass.commitCached = true;
+        }
+        for (const std::pair<uint32_t, int>& t : pass.commitTextures)
+            device.SetTexture(s_fxApp, cpu, t.first, t.second >= 0 ? fx.m_params[size_t(t.second)].tex() : nullptr);
+        applyFamily(fx, device);
+        return;
+    }
     if (!full && pass.samplersParsed && s_fxCommitLight)
     {
         for (const FxState& s : pass.states)
