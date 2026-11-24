@@ -1185,6 +1185,11 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
       code. bankcode.py now emits them as `NFSC_BANK_CALL` ([[clang::noinline]]): 94 KB, run 418 18.7 % (+ its
       helpers listed apart), audio thread SND hold 2068 -> 1740 ms per 10 s. d3d9_native: the capture checks skip
       their emulated-TLS reads until a capture begins (never in Carbon). Runs 419/420: 26.7 / 26.1 fps (traffic 1.0).
+   421-423 (2026-11-24). **Native resampler.** The mixer 0x008a25b8's hot loop was 0x008b70b0 (linear interpolation,
+      x87, a voice's +0x24 function pointer, inlined there by PGO's indirect-call promotion). audio_thread.cpp
+      replaces its method natively in float (audio_resample_native, default on): mixer 13 % -> 7.9 % + 3.2 % of the
+      audio thread's SND-held time; race-time holds ~2650 (417) -> ~2450 (418) -> ~2330 ms per 10 s (421), audio
+      levels as before. Runs 422/423: 27.6 / 26.3 fps (traffic 1.0).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank
