@@ -11,7 +11,8 @@ param(
     [switch]$Compare,
     [string]$Vita = "",
     [string]$TitleId = "NFSCVITA0",
-    [int]$TimeoutSeconds = 300
+    [int]$TimeoutSeconds = 300,
+    [string[]]$FragmentOptions   # e.g. fastprecision=1,fastmath=1: compile options for the fragment programs only
 )
 $ErrorActionPreference = "Stop"
 # The Vita's address: -Vita, else $env:VITA_IP (set it in tools/env.local.ps1, which git ignores).
@@ -57,7 +58,13 @@ Write-Host "shadercomp: $($names.Count) programs"
 $tmp = Join-Path $repo 'work\shadercomp'
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $manifest = Join-Path $tmp 'compile.txt'
-Set-Content -Path $manifest -Value ($lines -join "`n") -Encoding ascii
+$manifestLines = @($lines | Where-Object { ($_ -split ' ')[1] -eq 'sce_vp_psp2' })
+if ($FragmentOptions) {
+    $FragmentOptions = @($FragmentOptions | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+    foreach ($o in $FragmentOptions) { $kv = $o -split '='; $manifestLines += "option $($kv[0]) $($kv[1])" }
+}
+$manifestLines += @($lines | Where-Object { ($_ -split ' ')[1] -eq 'sce_fp_psp2' })
+Set-Content -Path $manifest -Value ($manifestLines -join "`n") -Encoding ascii
 
 Send-Command "destroy"
 Start-Sleep -Seconds 2

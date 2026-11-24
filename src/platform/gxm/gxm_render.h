@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <map>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -32,8 +33,16 @@ private:
         uint8_t*                        base;
         uint32_t                        size;
         std::map<uint32_t, uint32_t>    holes;      // offset -> size
+        std::set<std::pair<uint32_t, uint32_t>> bySize;   // (size, offset) of the same holes, for best fit
+        void addHole(uint32_t offset, uint32_t size) { holes[offset] = size; bySize.insert({size, offset}); }
+        std::map<uint32_t, uint32_t>::iterator eraseHole(std::map<uint32_t, uint32_t>::iterator it)
+        {
+            bySize.erase({it->second, it->first});
+            return holes.erase(it);
+        }
     };
     bool addChunk(uint32_t minimum);
+    void* take(Chunk* c, std::map<uint32_t, uint32_t>::iterator hole, uint32_t start, uint32_t size);
 
     const char*                         m_name;
     SceKernelMemBlockType               m_type;

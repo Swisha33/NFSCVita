@@ -355,7 +355,7 @@ bool GpuHeap::addChunk(uint32_t minimum)
         return false;
     }
     Chunk* c = new Chunk{ uid, static_cast<uint8_t*>(base), size, {} };
-    c->holes[0] = size;
+    c->addHole(0, size);
     m_chunks.push_back(c);
     logInfo("gxm: %s heap +%u KB", m_name, size / 1024);
     if (timed)
@@ -363,27 +363,45 @@ bool GpuHeap::addChunk(uint32_t minimum)
     return true;
 }
 
+void* GpuHeap::take(Chunk* c, std::map<uint32_t, uint32_t>::iterator hole, uint32_t start, uint32_t size)
+{
+    const uint32_t holeStart = hole->first, holeEnd = hole->first + hole->second;
+    c->eraseHole(hole);
+    if (start > holeStart)
+        c->addHole(holeStart, start - holeStart);
+    if (start + size < holeEnd)
+        c->addHole(start + size, holeEnd - (start + size));
+    void* p = c->base + start;
+    m_used[p] = std::make_pair(c, size);
+    return p;
+}
+
+// Best fit by hole size in the first chunk that has a big enough hole. Hole offsets are multiples of 16, so a hole of
+// size + alignment - 16 bytes always fits. The first-fit walk over every hole (std::map order) cost up to ~1 ms per
+// streaming frame with a fragmented heap (run 392); it stays as the fallback for holes that fit only by their
+// alignment.
 void* GpuHeap::allocate(uint32_t size, uint32_t alignment)
 {
     size = alignUp(size ? size : 1, 16);
+    const uint32_t need = size + (alignment > 16 ? alignment - 16 : 0);
     for (int attempt = 0; attempt < 2; ++attempt)
     {
+        for (Chunk* c : m_chunks)
+        {
+            auto best = c->bySize.lower_bound(std::make_pair(need, 0u));
+            if (best != c->bySize.end())
+            {
+                auto hole = c->holes.find(best->second);
+                return take(c, hole, alignUp(hole->first, alignment), size);
+            }
+        }
         for (Chunk* c : m_chunks)
         {
             for (auto it = c->holes.begin(); it != c->holes.end(); ++it)
             {
                 const uint32_t start = alignUp(it->first, alignment);
-                if (start + size > it->first + it->second)
-                    continue;
-                const uint32_t holeStart = it->first, holeEnd = it->first + it->second;
-                c->holes.erase(it);
-                if (start > holeStart)
-                    c->holes[holeStart] = start - holeStart;
-                if (start + size < holeEnd)
-                    c->holes[start + size] = holeEnd - (start + size);
-                void* p = c->base + start;
-                m_used[p] = std::make_pair(c, size);
-                return p;
+                if (start + size <= it->first + it->second)
+                    return take(c, it, start, size);
             }
         }
         if (attempt == 0 && !addChunk(size + alignment))
@@ -405,7 +423,7 @@ void GpuHeap::free(void* pointer)
     if (next != c->holes.end() && next->first == start + size)
     {
         size += next->second;
-        next = c->holes.erase(next);
+        next = c->eraseHole(next);
     }
     if (next != c->holes.begin())
     {
@@ -414,10 +432,10 @@ void GpuHeap::free(void* pointer)
         {
             start = previous->first;
             size += previous->second;
-            c->holes.erase(previous);
+            c->eraseHole(previous);
         }
     }
-    c->holes[start] = size;
+    c->addHole(start, size);
     // An empty chunk goes back to the system (but the first one stays): the heaps grew in load peaks and kept that
     // memory for good, and a later render target found no main memory left (run 266, career start: GXM out of
     // memory after a fifth gxm_buffers chunk).

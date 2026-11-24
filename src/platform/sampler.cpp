@@ -319,8 +319,8 @@ int samplerEntry(void*)
             if (s_stack)
             {
                 countStackWait(uint32_t(info.waitId), uint32_t(info.waitType));
-                // Nothing calls stop() in Carbon: name the waits every ~30000 waiting samples.
-                if (++s_stackSamples >= 30000)
+                // Nothing calls stop() in Carbon: name the waits every ~5000 waiting samples.
+                if (++s_stackSamples >= 5000)
                 {
                     logStackWaits();
                     s_stackSamples = 0;

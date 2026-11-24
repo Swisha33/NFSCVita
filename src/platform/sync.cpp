@@ -147,6 +147,13 @@ CondVar::CondVar(const char* name, Mutex& mutex)
 {
     if (m_id < 0)
         fatal("sceKernelCreateCond(%s) failed: 0x%08x", name, m_id);
+    // The sampler names waits by id; conditions cannot be looked up by id with this SDK.
+    static unsigned s_logged = 0;
+    if (s_logged < 64)
+    {
+        ++s_logged;
+        logInfo("sync: condition %s is 0x%08x", name, unsigned(m_id));
+    }
 }
 
 CondVar::~CondVar()

@@ -1158,6 +1158,17 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         runRoutine 18 % -> 2 %; run 400 (traffic 1.0): the audio thread holds SND ~2.5-2.7 s per 10 s (was
         3.0-3.2), the game's SND wait 2.2 -> 1.5 ms per frame, 25.4 fps; all 116 routines still native, sound
         levels normal. Left under the lock: skid routine bank_a7eb6b92 27 %, mixer 008a25b8 13 %, 005373b0 10 %.
+   401-408 (2026-11-24). **GPU heap best fit, what the game thread waits on, faster fragment programs.**
+      - Bank routines that only call the library skip their resume switch in the Direct variant (run 401: no
+        measurable change). GpuHeap::allocate: best fit through a (size, offset) index instead of a first-fit walk
+        over every hole; runs 403 / 404 (traffic 1.0) 25.9 / 26.2 fps, slow frames 159 vs 245 in run 392.
+      - The game thread waits ~13 % of the time (run 406, sampler names every 5000 waits; conditions are logged at
+        creation): 0x000110a7 (type 0x100, a system object, ~2.7 ms per frame: GXM / display waits), 0x4001016d
+        gxm_jobs_done (~1.7 ms), the SND guest_mutex (~1.3 ms). Suspending a waiting thread to read its stack breaks
+        its wait (sceKernelWaitCond 0x80028146, run 405): not done.
+      - The GPU is busy 24 ms per frame on average (perf lines, run 404), up to 29-30 in the city: near the frame
+        time. Fragment programs compiled with fastprecision + fastmath (tools/shadercomp.ps1 -FragmentOptions, new;
+        vertex programs and blit_f as shipped): GPU busy 24.1 -> 20.1 ms (run 408), screenshots 407 unchanged.
       **Next:** water (IDI_WATERSHADER_FX), the screen blur passes; speed (native hot functions, PGO).
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),

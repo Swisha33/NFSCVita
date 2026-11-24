@@ -93,17 +93,19 @@ def main():
         k = bisect.bisect_right(addrs, x) - 1
         return addrs[k] if k >= 0 else -1
 
-    def chain(pc, lr, st):
+    def chain(pc, lr, st, first=None):
         """Names of the verified call chain: pc's function, then each return address whose call instruction calls the
-        function of the frame below it (BL / BLX immediate decoded; indirect calls and long-branch thunks accepted)."""
-        cur = fstart((pc - bias) & ~1)
-        out = {fn(pc)}
+        function of the frame below it (BL / BLX immediate decoded; indirect calls and long-branch thunks accepted).
+        first: name of the innermost frame when pc is outside the ELF (a waiting thread in a system call); the first
+        return address is then accepted whatever it calls."""
+        cur = fstart((pc - bias) & ~1) if first is None else None
+        out = {fn(pc) if first is None else first}
         for w in [lr] + list(st):
             r = (w - bias) & ~1
             kind, target = elf.call_before(w - bias)
             if kind is None:
                 continue
-            if kind == 'direct':
+            if kind == 'direct' and cur is not None:
                 t = fstart(target)
                 tn = names[bisect.bisect_right(addrs, target) - 1] if t >= 0 else ''
                 if t != cur and 'Thunk' not in tn and 'veneer' not in tn:
@@ -124,6 +126,7 @@ def main():
     frames = []          # (ms, [set of names per running sample], waiting count)
     cur, curwait = [], 0
     pending = None       # (pc, lr) waiting for its stack record
+    waiting = None       # (type, id) of a waiting sample, for its stack record
     frame_no = 0
     i = 0
     n = len(words)
@@ -143,9 +146,15 @@ def main():
                 cur.append(chain(pending[0], pending[1], st) if not a.raw else
                            {fn(pending[0])} | {fn(w) for w in st})
                 pending = None
+            elif waiting is not None:
+                # A waiting sample's stack (second word: the pc): counted as running time under "wait <id>".
+                curwait -= 1
+                cur.append(chain(lr, 0, st, 'wait 0x%x type 0x%x' % (waiting[1], waiting[0])))
+            waiting = None
             i += 2 + ((k + 1) & ~1)
             continue
         flush_pending()
+        waiting = None
         i += 2
         if pc == 0xffffffff:
             if lr & 0x80000000:
@@ -155,6 +164,7 @@ def main():
             continue
         if pc >= 0xff000000:
             curwait += 1
+            waiting = (pc & 0xffffff, lr)
             continue
         pending = (pc, lr)
     flush_pending()
