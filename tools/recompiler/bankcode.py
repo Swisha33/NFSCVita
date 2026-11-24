@@ -381,6 +381,11 @@ def function_lines(cs, routine):
     lines.append('    reg32 eax = cpu.eax, ecx = cpu.ecx, edx = cpu.edx, ebx = cpu.ebx;')
     lines.append('    reg32 esp = cpu.esp, ebp = cpu.ebp, esi = cpu.esi, edi = cpu.edi;')
     lines.append('    LazyFlags flags;')
+    # Direct runs make library calls in place and only ever start at resume point 0 (calls to other routines still
+    # return): without the jumps to the other resume points the routine compiles as straight-line code.
+    direct = all(ins.target[0] == 'library' for ins in routine.instructions.values() if ins.op == 'call')
+    if direct:
+        lines.append('    if constexpr (!Memory::InlineCalls)')
     lines.append('    switch (resume)')
     lines.append('    {')
     lines.append('    case 0:')
