@@ -6,6 +6,7 @@
 
 #include <platform/render.h>
 #include <cstdint>
+#include <string>
 
 namespace pf { namespace gxm {
 
@@ -61,6 +62,8 @@ public:
     // in path (written by an earlier run) now instead of at their first draw, and lists every program created in
     // path at shutdown.
     void usePrograms(const char* path);
+    // Appends " name count" pairs of host (newlib) heap users: program caches, heap bookkeeping, pending frees.
+    void appendHostUse(std::string& line);
     bool busy(const render::Resource& resource) { return resource.lastUse > completedFrame(); }
 
     // Null when out of memory. Target textures are rendered to and sampled; the others are written by

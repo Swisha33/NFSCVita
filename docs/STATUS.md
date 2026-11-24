@@ -1225,6 +1225,32 @@ of 83-166 MB was far off: code size is not a memory problem. The guest heap and 
         not a bottleneck. In the slow windows (18-24 fps) the GPU is idle 75 %+ of the time and no slot waits:
         game-thread CPU bound. Run 447 leaf profile (PGO): 727230 7.3 %, 71e660 5.2 %, CommitChanges (applyPass +
         applyFamily inlined, flat) 4.4 %, 79fdb0 4.3 %, 79afa0 3.3 %, DrawIndexedPrimitive 2.4 %, MatrixMultiply 1.6 %.
+      **GitHub crash issues #4-#9 (2026-11-24, logs + dumps in work/issues/):**
+      - #8 (both logs, v0.1.6 and v0.1.7): after the first speed-camera event the NIS bundle
+        scene_endingcareer11ng_bundleb.bun (8.6 MB) loads, then "d3d9: out of texture memory for 1024x1024 format
+        0x15" and a call through a null object (dynamic_call at 0). GpuHeap grew only in whole 16 MB chunks (8 MB
+        buffers): a smaller remainder of video / main memory was never used. Now (as NFSUG2_VITA's heap): the chunk
+        halves down to the request on failure, per memory type; before failing, freePending + a wait (max 200 ms)
+        for the submitted frames that released textures / buffers wait for (FrameRenderer::allocateFrom); failures
+        log heap use, largest hole and free user / cdram / phycont memory. Cube textures, vertex / index buffers
+        and depth surfaces that fail are logged too (they failed silently before).
+      - #4 (car selector), #6 (before a canyon race), #7 (speed trap, "road and world textures vanished first"):
+        the same null-object call with no texture error logged. The stack words are C++ EH handler stubs
+        (`mov eax, FuncInfo; jmp 0087eb4e`): the function that pushes one in its prologue owns the frame
+        (generated code never writes return addresses). #4/#6 innermost: 0072af50 = Carbon's race loader (Android
+        port: it re-locks buffers outside the open range; ours merges nested locks into one shadow range, fine).
+        Most likely a silent CreateVertexBuffer / CreateCubeTexture failure (GPU memory), now logged.
+      - #5: std::bad_alloc, newlib heap 26 MB full after 30-40 min. Every texture carried a 560-byte reference
+        history (RefLog), and a copy per object block stayed in s_deadLogs after the texture died: ~5-6k objects
+        -> several MB. Now behind setting ref_log (default off). Watchdog logs "memory: host use:" every 30 s
+        (guest heap blocks, d3d9 objects, programs, GPU heap blocks). Run 449 (10 min AI drive): host heap flat at
+        ~21.4 MB (runs 443-448 old build: 18.5 -> 23 MB within 3 min, still rising). 25.2 fps (no PGO).
+      - #9 (black screen after the Kenji boss race, no crash, FEAnyMovie.fng): main thread holds the lock for
+        10+ min, job worker 0 has a job, one issued read (callback 00699710) pending. EH stubs: 00593550 (a
+        destructor) -> 0074b480 -> 006b7be0 = close a file handle: `while ([handle + 0x30] == 0) call 006b68d0`.
+        Same deadlock as issue #1's race start. load_trace.cpp pumpYield (setting pump_yield, default on): after
+        64 pump passes and 100 ms without a Present, each pass while a job worker (008d6b40) has a queued job gives
+        up the lock for 200 us. Run 450 (5 min): never triggered in boot, loads or driving; 25.0 fps.
       **Earlier next list (runs 224 / 226 baseline 19.2-19.9 fps):** (1) the rest of applyPass
       (2.4 %) and carbonBlockStore (1 %); (2) more guest hot spots: 71e660, 727230, 79fa60 (bigger, with calls),
       7e83e0 (x87 leaf, 0.8 %); (3) UG2's frame-memory path for DISCARD locks of busy buffers; (4) audio bank

@@ -41,6 +41,10 @@ WinApplication*         s_app = nullptr;
 uint8_t                 s_lastKind[1024 * 1024 / 8] = {};   // per object block: kind of the object released there last
 std::mutex                                      s_deadMutex;
 std::unordered_map<x86::reg32, Object::RefLog>  s_deadLogs;  // per object block: history of the last texture there
+// Setting ref_log (default off): the reference history above. About 560 bytes of the 30 MB host heap per texture,
+// live and dead (kept per object block): several MB with Carbon's thousands of textures (issue #5 ran the host heap
+// dry after 30-40 minutes).
+bool                    s_refLogs = false;
 
 void logRefEvent(const char* what, const Object::RefEvent& e)
 {
@@ -143,7 +147,7 @@ void noteMethod(WinApplication* app, x86::CPU& cpu)
 
 void Object::noteRef(char op)
 {
-    if (m_kind != KindTexture)
+    if (m_kind != KindTexture || !s_refLogs)
         return;
     if (!m_refLog)
     {
@@ -287,7 +291,7 @@ Object* lookup(x86::reg32 guest)
                      guest, k < KindCount ? names[k] : "?",
                      g_methodSlot && s_app->getMethodName(g_methodSlot) ? s_app->getMethodName(g_methodSlot) : "?",
                      unsigned(g_methodCaller));
-        if (k == KindTexture)
+        if (k == KindTexture && s_refLogs)
             logRefLog(guest - (guest - s_objectStart) % ObjectBytes);
         return nullptr;
     }
@@ -557,6 +561,15 @@ void initInterfaces(WinApplication* app)
     if (s_app)
         return;
     s_app = app;
+    s_refLogs = pf::Config::getBool("ref_log", false);
+    addHostReport([](std::string& line) {
+        char text[96];
+        snprintf(text, sizeof(text), " d3d9_objects %u d3d9_handles %u dead_reflogs %u",
+                 unsigned(s_objects.size() - s_freeHandles.size()), unsigned(s_objects.size()),
+                 unsigned(s_deadLogs.size()));
+        line += text;
+        pf::gxm::Device::get().appendHostUse(line);
+    });
     s_objectMemory = new MemMap(ObjectArena);
     s_objectStart = s_objectMemory->getBlockStart();
     s_objectEnd = s_objectStart + s_objectMemory->getBlockSize();

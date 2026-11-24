@@ -1,3 +1,4 @@
+#include <lib/winapp.h>
 #include <lib/heap.h>
 #include <lib/memmap.h>
 #include <platform/log.h>
@@ -94,6 +95,21 @@ struct State
 State& state()
 {
     static State s_state;
+    static bool s_reported = [] {
+        addHostReport([](std::string& line) {
+            State& s = state();
+            pf::LwLockGuard guard(s.mutex);
+            size_t freeEntries = 0;
+            for (const auto& list : s.freeLists)
+                freeEntries += list.capacity();
+            char text[96];
+            snprintf(text, sizeof(text), " heap_blocks %u heap_free_entries %u", unsigned(s.blocks.size()),
+                     unsigned(freeEntries));
+            line += text;
+        });
+        return true;
+    }();
+    (void)s_reported;
     return s_state;
 }
 

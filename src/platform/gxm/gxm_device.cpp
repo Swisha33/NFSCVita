@@ -18,6 +18,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <malloc.h>
 
 // Embedded shader binaries (generated from shaders/*.cg, cmake/shaders.cmake).
 extern "C" {
@@ -143,8 +144,22 @@ void gpuUsseFree(SceUID uid, bool vertex)
     sceKernelFreeMemBlock(uid);
 }
 
-void* patcherHostAlloc(void*, SceSize size)   { return malloc(size); }
-void  patcherHostFree(void*, void* mem)       { free(mem); }
+std::atomic<uint32_t> s_patcherBytes{0};     // host heap the shader patcher holds (setting-free diagnostics)
+
+void* patcherHostAlloc(void*, SceSize size)
+{
+    void* p = malloc(size);
+    if (p)
+        s_patcherBytes.fetch_add(uint32_t(malloc_usable_size(p)), std::memory_order_relaxed);
+    return p;
+}
+
+void patcherHostFree(void*, void* mem)
+{
+    if (mem)
+        s_patcherBytes.fetch_sub(uint32_t(malloc_usable_size(mem)), std::memory_order_relaxed);
+    free(mem);
+}
 
 // Display queue thread only: the last two callbacks' end times, the last start, and whether that start was
 // the GPU's completion time of its frame.
@@ -1156,6 +1171,15 @@ void Device::usePrograms(const char* path)
     if (created)
         logInfo("gxm: %u programs created from %s in %.1f ms", unsigned(created), path,
                 double(perf::now() - start) / 1000.0);
+}
+
+void Device::appendHostUse(std::string& line)
+{
+    char text[64];
+    snprintf(text, sizeof(text), " patcher_kb %u", unsigned(s_patcherBytes.load(std::memory_order_relaxed) / 1024));
+    line += text;
+    if (m_impl)
+        m_impl->frames.appendHostUse(line);
 }
 
 render::TextureStorage* Device::createTexture(const render::TextureDesc& desc)

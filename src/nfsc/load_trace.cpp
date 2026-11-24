@@ -11,11 +11,17 @@
 // Off (default), each calls the translated body and nothing else.
 
 #include <lib/winapp.h>
+#include <winapi/kernel32.h>
 #include <platform/config.h>
 #include <platform/log.h>
 #include <platform/time.h>
 #include <recomp.h>
 #include <x86.h>
+
+namespace win32
+{
+uint64_t lastFrameUs();     // src/lib/winapp.cpp
+}
 
 namespace nfsc
 {
@@ -72,6 +78,62 @@ void raceStartYield(win32::WinApplication* app, x86::CPU& cpu)
     app->lockContext(cpu);
 }
 
+// Any wait loop that pumps 006b68d0 without a Present has the same deadlock when what it waits for needs an EA job
+// worker: 006b7be0 (close a file handle) spins `while ([handle + 0x30] == 0) call 006b68d0` until its read is done,
+// and the read's completion runs on job worker 0 (issue #9: black screen after the Kenji boss race, FEAnyMovie.fng
+// open, worker 0 with one job, one issued read, main thread holding the lock for 10+ minutes).
+// Setting pump_yield (default on): once the pump ran PumpSpins times since the last Present and that Present is
+// PumpIdleUs old, each further pass while a job worker (entry 008d6b40) has a job gives up the lock for 200 us.
+const unsigned PumpSpins = 64;
+const uint64_t PumpIdleUs = 100000;
+
+bool workerBusy()
+{
+    static reg32 s_workers[4] = {};
+    static unsigned s_found = 0;
+    if (s_found < 2)
+    {
+        s_found = 0;
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            s_workers[i] = win32::kernel32::threadParameter(0x008d6b40, i);
+            if (s_workers[i])
+                ++s_found;
+        }
+    }
+    for (unsigned i = 0; i < 4; ++i)
+        if (s_workers[i] && rc::ld32(s_workers[i] + 0x10))
+            return true;
+    return false;
+}
+
+void pumpYield(win32::WinApplication* app, x86::CPU& cpu)
+{
+    static pf::LazyBool on_setting;
+    if (!on_setting.get("pump_yield", true))
+        return;
+    static uint64_t s_frame = 0;
+    static unsigned s_spins = 0;
+    static uint32_t s_episodes = 0, s_yields = 0;
+    const uint64_t frame = win32::lastFrameUs();
+    if (frame != s_frame)
+    {
+        if (s_yields && s_episodes <= 20)
+            pf::logInfo("load_trace: pump_yield: frames again after %u yields", s_yields);
+        s_frame = frame;
+        s_spins = s_yields = 0;
+        return;
+    }
+    if (++s_spins < PumpSpins || pf::ticksUs() - frame < PumpIdleUs || !workerBusy() || !app->holdsContext(cpu))
+        return;
+    if (s_yields++ == 0 && ++s_episodes <= 20)
+        pf::logInfo("load_trace: the loader pump spins without a frame (%u passes) while a job worker has work; "
+                    "yielding the execution lock (pump_yield)", s_spins);
+    app->unlockContext(cpu);
+    pf::sleepUs(200);
+    app->lockContext(cpu);
+}
+
 }
 
 namespace native
@@ -98,7 +160,10 @@ void sub_6b68d0(win32::WinApplication* app, x86::CPU& cpu)
     sub_6b68d0_guest(app, cpu);
     --s_depth;
     if (s_depth == 0)
+    {
         raceStartYield(app, cpu);
+        pumpYield(app, cpu);
+    }
     if (work && tracing())
         pf::logInfo("load_trace: run depth %d done | queue %u deferred %u flag %u", s_depth,
                     unsigned(rc::ld32(QueueCount)), unsigned(rc::ld32(DeferredCount)), unsigned(rc::ld32(LoaderFlag)));

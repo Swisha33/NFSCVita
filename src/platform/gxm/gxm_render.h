@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace pf { namespace gxm {
@@ -25,6 +26,9 @@ public:
     ~GpuHeap();
     void* allocate(uint32_t size, uint32_t alignment);   // null when no block can be added
     void free(void* pointer);
+    uint32_t largestHole() const;
+    void appendHostUse(std::string& line, const char* name) const;
+    void failed(uint32_t size);           // logs the heap and the free memory
 
 private:
     struct Chunk
@@ -50,6 +54,9 @@ private:
     uint32_t                            m_attributes;
     std::vector<Chunk*>                 m_chunks;
     std::unordered_map<void*, std::pair<Chunk*, uint32_t>> m_used;   // pointer -> chunk, size
+    uint32_t                            m_usedBytes = 0;
+    uint32_t                            m_totalBytes = 0;
+    uint32_t                            m_failures = 0;
 };
 
 // GPU-read memory (MAIN_NC) for what frames in flight read: chunks are reused once every frame that used them is
@@ -145,6 +152,11 @@ public:
     uint32_t loadPrograms(const char* path);
     void savePrograms(const char* path) const;
     render::TextureStorage* createTexture(const render::TextureDesc& desc);
+    // Texture heap memory; frees and waits for released textures before it gives up (null).
+    void* allocateTexture(uint32_t bytes, uint32_t alignment);
+    void* allocateFrom(GpuHeap* heap, uint32_t bytes, uint32_t alignment);
+    bool waitForPending();
+    void appendHostUse(std::string& line) const;
     void writeTexture(render::TextureStorage* texture, uint32_t face, uint32_t level, const void* data, uint32_t pitch);
     void readTexture(const render::TextureStorage* texture, uint32_t face, uint32_t level, void* data, uint32_t pitch);
     void copyTexture(render::TextureStorage* to, const render::TextureStorage* from);
@@ -389,6 +401,7 @@ private:
     uint32_t                m_lastIndex = 0;
     uint32_t                m_completed = 0;
     std::vector<Pending>    m_pending;
+    std::atomic<uint32_t>   m_lastSubmitted{0};         // newest frame the render thread submitted
     SceUID                  m_sequenceUid = -1;
     uint16_t*               m_sequence = nullptr;       // 0..65535
     SceUID                  m_arenaUid = -1;

@@ -908,6 +908,7 @@ HRESULT Device::CreateCubeTexture(WinApplication* app, x86::CPU& cpu, UINT edge,
     Texture* t = new Texture(this, desc, format, usage, pool);
     if (!t->valid())
     {
+        pf::logError("d3d9: out of texture memory for cube %u format 0x%x", edge, format);
         delete t;
         return D3DERR_OUTOFVIDEOMEMORY;
     }
@@ -925,6 +926,7 @@ HRESULT Device::CreateVertexBuffer(WinApplication* app, x86::CPU& cpu, UINT leng
     Buffer* b = new Buffer(this, KindVertexBuffer, length, usage, pool, fvf);
     if (!b->valid())
     {
+        pf::logError("d3d9: out of memory for a vertex buffer of %u bytes", length);
         delete b;
         return D3DERR_OUTOFVIDEOMEMORY;
     }
@@ -947,6 +949,7 @@ HRESULT Device::CreateIndexBuffer(WinApplication* app, x86::CPU& cpu, UINT lengt
     Buffer* b = new Buffer(this, KindIndexBuffer, length, usage, pool, format);
     if (!b->valid())
     {
+        pf::logError("d3d9: out of memory for an index buffer of %u bytes", length);
         delete b;
         return D3DERR_OUTOFVIDEOMEMORY;
     }
@@ -988,7 +991,10 @@ HRESULT Device::CreateDepthStencilSurface(WinApplication* app, x86::CPU& cpu, UI
         return D3DERR_INVALIDCALL;
     render::DepthStorage* depth = gpu().createDepth(width, height);
     if (!depth)
+    {
+        pf::logError("d3d9: out of memory for a %ux%u depth surface", width, height);
         return D3DERR_OUTOFVIDEOMEMORY;
+    }
     Surface* s = new Surface(this, Surface::RoleDepth, width, height, format);
     s->setDepth(depth);
     *surface = publish(app, s);

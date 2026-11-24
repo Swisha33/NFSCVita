@@ -21,6 +21,10 @@ class Mutex;
 
 typedef void (*MethodPtr)(WinApplication* application, x86::CPU& cpu);
 
+// Host (newlib) heap breakdown: each report appends " name count" pairs; the watchdog logs them every 30 s.
+typedef void (*HostReport)(std::string& line);
+void addHostReport(HostReport report);
+
 struct Method
 {
     std::string name;

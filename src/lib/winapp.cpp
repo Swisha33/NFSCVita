@@ -165,6 +165,21 @@ static void logWatches()
     }
 }
 
+static std::vector<HostReport> s_hostReports;
+
+void addHostReport(HostReport report)
+{
+    s_hostReports.push_back(report);
+}
+
+static void logHostReports()
+{
+    std::string line = "memory: host use:";
+    for (HostReport report : s_hostReports)
+        report(line);
+    pf::logInfo("%s", line.c_str());
+}
+
 static void logGuestStack(const char* who, const x86::CPU* cpu)
 {
     if (!cpu)
@@ -288,6 +303,8 @@ static int watchdogRun(void* argument)
                         "in use", unsigned(idle / 1000), File::openCount(), File::parkedCount(),
                         unsigned(host.uordblks / 1024));
         }
+        if (tick % 15 == 0 && !s_hostReports.empty())
+            logHostReports();
         // Every 2 s: a process that dies keeps only synced lines (run 73b lost its last ~10 s).
         pf::logSync();
         if (idle < StallUs)
@@ -317,6 +334,12 @@ static int watchdogRun(void* argument)
             logGuestStack("main thread", mainCpu);
     }
     return 0;
+}
+
+// Time of the newest Present (pf::ticksUs), 0 before the first; declared where used (src/nfsc/load_trace.cpp).
+uint64_t lastFrameUs()
+{
+    return s_lastFrameUs.load(std::memory_order_relaxed);
 }
 
 void WinApplication::noteFrame()

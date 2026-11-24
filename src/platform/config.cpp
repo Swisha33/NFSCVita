@@ -30,13 +30,13 @@ const char* const Known[] =
     // Sampling profiler (src/platform/sampler.cpp, from NFSUG2_VITA).
     "sampler", "sampler_interval_us", "sampler_thread", "sampler_copies",
     // Cores, logs and the benchmark.
-    "use_core3", "core3_tasks", "timing_log", "timing_phases", "hitch_log", "hitch_probe_ms", "console_log",
+    "use_core3", "core3_tasks", "timing_log", "timing_phases", "hitch_log", "hitch_probe_ms", "ref_log", "console_log",
     "benchmark", "benchmark_exit", "benchmark_seconds", "benchmark_laps", "benchmark_opponents", "benchmark_track",
     "benchmark_timing_log", "benchmark_mode", "benchmark_car", "benchmark_driver",
     // Renderer.
     "alpha_draw_order", "skip_unused_alpha_test", "matrices_on_render_thread", "texture_cache_mb", "texture_async",
     "gxm_precomputed", "gxm_lists", "gxm_core2", "gxm_program_list", "cull_swap", "debug_frame_dump", "debug_frame_dump_from",
-    "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "pool_log", "debug_texoffset", "debug_evict_buffers", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "fast_chunk_unload", "city_reserve", "file_log", "load_trace", "race_start_yield", "pool_fill", "sim_hz", "promote_lo", "promote_hi", "fe_log", "bank_unlocked", "ug2_layout",
+    "debug_skip_cycle", "debug_skip_from", "debug_watch", "debug_find", "debug_scan", "find_dots", "debug_poke", "pool_log", "debug_texoffset", "debug_evict_buffers", "car_reflections", "debug_no_yield", "thread_normal", "scenery_scale", "fx_commit_light", "native_check", "native_math", "fast_chunk_unload", "city_reserve", "file_log", "load_trace", "race_start_yield", "pump_yield", "pool_fill", "sim_hz", "promote_lo", "promote_hi", "fe_log", "bank_unlocked", "ug2_layout",
     // Native versions of guest code and their shadow compares.
     "bank_native", "shadow_bank", "audio_kernel_check", "audio_max_rate", "audio_paced_step", "audio_duty", "audio_unlocked", "audio_lock_free", "audio_thread_core", "sampler_mark_section", "sampler_stack", "sampler_frame_marks", "debug_buffer_copies", "quad_upload_extent", "envmap_interval", "timer_native", "fx_commit_cache", "cpu_clock",
     "stream_track_kb", "stream_subpool_kb", "audio_pool_kb", "coll_native", "shadow_coll", "cull_native", "cull_parallel", "shadow_cull",
